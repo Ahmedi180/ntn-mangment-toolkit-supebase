@@ -685,7 +685,132 @@ const Header = memo(({
   );
 });
 
+
+const AddRecordModal = memo(({ isOpen, activeTab, onClose, onSave }: any) => {
+  const [localRecord, setLocalRecord] = useState({
+    ref: '', name: '', ntn: '', cnic: '', status: 'Active', color: 'emerald'
+  });
+
+  useEffect(() => {
+    if (isOpen) {
+      setLocalRecord({ ref: '', name: '', ntn: '', cnic: '', status: 'Active', color: 'emerald' });
+    }
+  }, [isOpen]);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-[#0a192f]/60 backdrop-blur-sm" />
+          <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="bg-white rounded-[32px] w-full max-w-lg relative shadow-2xl overflow-hidden">
+            <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-blue-50/50">
+              <div>
+                <h3 className="text-xl font-black text-gray-800 tracking-tight">Add New {activeTab === 'HS Code' ? 'HS Code' : 'Record'}</h3>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Enter details for {activeTab}</p>
+              </div>
+              <button type="button" onClick={onClose} className="p-2 hover:bg-white rounded-xl transition-all text-gray-400 hover:text-gray-600 shadow-sm"><X size={20} /></button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); onSave(localRecord); }} className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">{activeTab === 'HS Code' ? 'Tracking Number' : 'Ref Number'}</label>
+                  <input type="text" placeholder={activeTab === 'HS Code' ? 'e.g. TRK-123' : 'e.g. 8601'} value={localRecord.ref} onChange={(e) => setLocalRecord({ ...localRecord, ref: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">{activeTab === 'HS Code' ? 'Shipper Company' : 'Company Name'}</label>
+                  <input type="text" placeholder="Enter name" value={localRecord.name} onChange={(e) => setLocalRecord({ ...localRecord, name: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-sm" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">{activeTab === 'HS Code' ? 'HS Code' : 'NTN Number'}</label>
+                  <input type="text" placeholder={activeTab === 'HS Code' ? 'e.g. 8471.30' : 'e.g. 42301-1234567-1'} value={localRecord.ntn} onChange={(e) => setLocalRecord({ ...localRecord, ntn: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">{activeTab === 'HS Code' ? 'CE Code' : 'CNIC Number'}</label>
+                  <input type="text" placeholder={activeTab === 'HS Code' ? 'e.g. CE-123' : 'e.g. 35202-9876543-1'} value={localRecord.cnic} onChange={(e) => setLocalRecord({ ...localRecord, cnic: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm" />
+                </div>
+              </div>
+              <div className="pt-4 flex items-center space-x-4">
+                <button type="button" onClick={onClose} className="flex-1 px-6 py-3.5 rounded-2xl font-bold text-gray-500 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 transition-all border border-gray-100">Cancel</button>
+                <button type="submit" className="flex-1 px-6 py-3.5 rounded-2xl font-bold bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-lg shadow-blue-600/20">Add Record</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+});
+
+const EditRecordModal = memo(({ isOpen, initialRecord, onClose, onSave, handleCopy, copiedId }: any) => {
+  const [localRecord, setLocalRecord] = useState(initialRecord || {});
+  
+  useEffect(() => {
+    if (isOpen && initialRecord) {
+      setLocalRecord(initialRecord);
+    }
+  }, [isOpen, initialRecord]);
+
+  return (
+    <AnimatePresence>
+      {isOpen && localRecord && Object.keys(localRecord).length > 0 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-[#0a192f]/60 backdrop-blur-sm" />
+          <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="bg-white rounded-[32px] w-full max-w-lg relative shadow-2xl overflow-hidden">
+            <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div>
+                <h3 className="text-xl font-black text-gray-800 tracking-tight">Edit Company Details</h3>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Ref ID: #{localRecord.ref || localRecord.tracking}</p>
+              </div>
+              <button type="button" onClick={onClose} className="p-2 hover:bg-white rounded-xl transition-all text-gray-400 hover:text-gray-600 shadow-sm"><X size={20} /></button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); onSave(localRecord); }} className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Ref Number</label>
+                  <input type="text" value={localRecord.ref || localRecord.tracking || ''} onChange={(e) => setLocalRecord({ ...localRecord, ref: e.target.value, tracking: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Company Name</label>
+                  <input type="text" value={localRecord.name || localRecord.shipper || localRecord.company || ''} onChange={(e) => setLocalRecord({ ...localRecord, name: e.target.value, shipper: e.target.value, company: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-sm" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">NTN Number</label>
+                  <div className="relative">
+                    <input type="text" value={localRecord.ntn || ''} onChange={(e) => setLocalRecord({ ...localRecord, ntn: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm pr-12" />
+                    <button type="button" onClick={() => handleCopy(localRecord.ntn || '', 'edit-modal-ntn')} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white rounded-lg text-gray-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:text-blue-600 transition-all shadow-sm border border-transparent hover:border-gray-100" title="Copy NTN">{copiedId === 'edit-modal-ntn' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}</button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">CNIC / Ref</label>
+                  <div className="relative">
+                    <input type="text" value={localRecord.cnic || ''} onChange={(e) => setLocalRecord({ ...localRecord, cnic: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm pr-12" />
+                    <button type="button" onClick={() => handleCopy(localRecord.cnic || '', 'edit-modal-cnic')} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white rounded-lg text-gray-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:text-blue-600 transition-all shadow-sm border border-transparent hover:border-gray-100" title="Copy CNIC">{copiedId === 'edit-modal-cnic' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}</button>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Status</label>
+                <select value={localRecord.status || 'Active'} onChange={(e) => setLocalRecord({ ...localRecord, status: e.target.value, color: e.target.value === 'Active' ? 'emerald' : 'red' })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-sm">
+                  <option value="Active">Active</option>
+                  <option value="Expired">Expired</option>
+                  <option value="Filled">Filled</option>
+                  <option value="Not Found">Not Found</option>
+                </select>
+              </div>
+              <div className="pt-4 flex items-center space-x-4">
+                <button type="button" onClick={onClose} className="flex-1 px-6 py-3.5 rounded-2xl font-bold text-gray-500 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 transition-all border border-gray-100">Cancel</button>
+                <button type="submit" className="flex-1 px-6 py-3.5 rounded-2xl font-bold bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-lg shadow-blue-600/20">Save Changes</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+});
+
 function AppContent() {
+
   const [showSplash, setShowSplash] = useState(true);
   const [isLogin, setIsLogin] = useState(true);
   const [isResetMode, setIsResetMode] = useState(false);
@@ -1011,18 +1136,17 @@ function AppContent() {
           schema: 'public', 
           table: name, 
           filter: `user_id=eq.${user.id}` 
-        }, () => {
-          const fetchOne = async () => {
-            const table = tables.find(t => t.name === name);
-            if (!table) return;
-            const { data } = await supabase
-              .from(name)
-              .select('*')
-              .eq('user_id', user.id)
-              .order('created_at', { ascending: false });
-            if (data) table.setter(data);
-          };
-          fetchOne();
+        }, (payload) => {
+          const table = tables.find(t => t.name === name);
+          if (!table) return;
+          
+          if (payload.eventType === 'INSERT') {
+            table.setter((prev: any[]) => [payload.new, ...prev]);
+          } else if (payload.eventType === 'DELETE') {
+            table.setter((prev: any[]) => prev.filter((item: any) => item.id !== payload.old.id));
+          } else if (payload.eventType === 'UPDATE') {
+            table.setter((prev: any[]) => prev.map((item: any) => item.id === payload.new.id ? payload.new : item));
+          }
         })
         .subscribe();
     });
@@ -1063,6 +1187,7 @@ function AppContent() {
   });
   const [recentMdiCheckerActivity, setRecentMdiCheckerActivity] = useState<any[]>([]);
   const [mdiFilter, setMdiFilter] = useState('all');
+  const [expandedDescId, setExpandedDescId] = useState<string | null>(null);
 
   // Persist tool results to local storage
   useEffect(() => {
@@ -1172,7 +1297,7 @@ function AppContent() {
     setTimeout(() => {
       const cnicPattern = /\b\d{5}-\d{7}-\d\b|\b\d{13}\b|\b\d{11}\b/;
       const numericIdPattern = /\b\d{7,13}\b/;
-      const invalidSuffixes = [/-eform$/i, /-a$/i, /-e form$/i, /-E FORM$/i];
+      const invalidSuffixes = [/-e\s*form$/i, /-a$/i, /-c$/i];
 
       const processedData = data.map((row, index) => {
         // ... (existing logic)
@@ -1240,8 +1365,9 @@ function AppContent() {
           if (!isHighValue || (isHighValue && isSelected)) {
             return {
               ...row,
-              shipper: `${row.originalCompany} ${row.foundNtn}`,
+              shipper: `${row.shipper} ${row.foundNtn}`,
               isMissing: false,
+              isUpdateApplied: true,
               color: 'emerald'
             };
           }
@@ -1540,58 +1666,63 @@ function AppContent() {
   };
 
   const processMdiCheckerFile = (data: any[]) => {
-    // Advanced automation regex for varied MID formats (Handles PK, PA and MID: prefixes)
-    const autoMidRegex = /\bMID:\s*([A-Z0-9]{8,20})\b|\b(PK[A-Z0-9]{6,18})\b|\b(PA[A-Z0-9]{8,18})\b/i;
+    setIsProcessing(true);
+    setTimeout(() => {
+      // Advanced automation regex for varied MID formats (Handles PK, PA and MID: prefixes)
+      const autoMidRegex = /\bMID:\s*([A-Z0-9]{8,20})\b|\b(PK[A-Z0-9]{6,18})\b|\b(PA[A-Z0-9]{8,18})\b/i;
 
-    const filteredData = data.filter(row => {
-      const desc = (row['CE Commodity Description'] || row['Description'] || '').toString().trim();
-      const country = (row['Recip Cntry'] || row['Country'] || '').toString().trim().toUpperCase();
-      
-      return desc !== '' && country === 'US';
-    });
+      const filteredData = data.filter(row => {
+        const desc = (row['CE Commodity Description'] || row['Description'] || '').toString().trim();
+        const country = (row['Recip Cntry'] || row['Country'] || '').toString().trim().toUpperCase();
+        
+        return desc !== '' && country === 'US';
+      });
 
-    const results = filteredData.map((row, index) => {
-      const description = (row['CE Commodity Description'] || row['Description'] || 'N/A').toString();
-      
-      // 1. First check against our saved MDI Database
-      const matchedManual = mdiDatabase.find(m => description.toUpperCase().includes(m.code.toUpperCase()));
-      
-      // 2. Fallback to smart automation regex
-      const midMatches = description.match(autoMidRegex);
-      const detectedMid = matchedManual ? matchedManual.code : (midMatches ? (midMatches[1] || midMatches[2] || midMatches[3]) : null);
-      const hasMid = !!detectedMid;
-      
-      return {
-        id: index.toString(),
-        tracking: row['Tracking Number'] || row['tracking'] || 'N/A',
-        description: description,
-        detectedMid: detectedMid || 'N/A',
-        country: row['Recip Cntry'] || row['Country'] || 'US',
-        shipper: row['Shipper Company'] || row['shipper'] || 'N/A',
-        service: row['Service Type'] || row['service'] || 'N/A',
-        status: hasMid ? 'Valid' : 'Missing MID',
-        color: hasMid ? 'blue' : 'red'
-      };
-    });
+      const results = filteredData.map((row, index) => {
+        const description = (row['CE Commodity Description'] || row['Description'] || 'N/A').toString();
+        
+        // 1. First check against our saved MDI Database
+        const matchedManual = mdiDatabase.find(m => description.toUpperCase().includes(m.code.toUpperCase()));
+        
+        // 2. Fallback to smart automation regex
+        const midMatches = description.match(autoMidRegex);
+        const detectedMid = matchedManual ? matchedManual.code : (midMatches ? (midMatches[1] || midMatches[2] || midMatches[3]) : null);
+        const hasMid = !!detectedMid;
+        
+        return {
+          id: index.toString(),
+          tracking: row['Tracking Number'] || row['tracking'] || 'N/A',
+          description: description,
+          detectedMid: detectedMid || 'N/A',
+          country: row['Recip Cntry'] || row['Country'] || 'US',
+          shipper: row['Shipper Company'] || row['shipper'] || 'N/A',
+          service: row['Service Type'] || row['service'] || 'N/A',
+          status: hasMid ? 'Valid' : 'Missing MID',
+          color: hasMid ? 'blue' : 'red'
+        };
+      });
 
-    // Sort: Missing MID at the top
-    const sortedResults = [...results].sort((a, b) => {
-      if (a.status === 'Missing MID' && b.status === 'Valid') return -1;
-      if (a.status === 'Valid' && b.status === 'Missing MID') return 1;
-      return 0;
-    });
+      // Sort: Missing MID at the top
+      const sortedResults = [...results].sort((a, b) => {
+        if (a.status === 'Missing MID' && b.status === 'Valid') return -1;
+        if (a.status === 'Valid' && b.status === 'Missing MID') return 1;
+        return 0;
+      });
 
-    setMdiCheckerResults(sortedResults);
-    setRecentMdiCheckerActivity(sortedResults.slice(0, 5));
-    setMdiFilter('all');
-    setSuccessMessage(`Processed ${results.length} MDI records!`);
-    setTimeout(() => setSuccessMessage(''), 3000);
+      setMdiCheckerResults(sortedResults);
+      setRecentMdiCheckerActivity(sortedResults.slice(0, 5));
+      setMdiFilter('all');
+      setIsProcessing(false);
+      setSuccessMessage(`Processed ${results.length} MDI records!`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    }, 800);
   };
 
   const exportMdiCheckerResults = () => {
-    if (mdiCheckerResults.length === 0) return;
+    const filteredMdiRecords = mdiCheckerResults.filter(row => mdiFilter === 'all' || row.status === mdiFilter);
+    if (filteredMdiRecords.length === 0) return;
     
-    const exportData = mdiCheckerResults.map(row => ({
+    const exportData = filteredMdiRecords.map(row => ({
       'Tracking Number': row.tracking.toString(),
       'CE Commodity Description': row.description,
       'Recip Cntry': row.country,
@@ -1627,9 +1758,15 @@ function AppContent() {
   };
 
   const exportNtnMissingResults = () => {
-    if (filteredNtnMissingRecords.length === 0) return;
+    let recordsToExport = filteredNtnMissingRecords;
     
-    const exportData = filteredNtnMissingRecords.map(row => ({
+    if (recordsToExport.length === 0) {
+      setError('No updated records found to export.');
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
+    
+    const exportData = recordsToExport.map(row => ({
       'Tracking Number': String(row.tracking),
       'Shipper Company': row.shipper,
       'Shipper Name': row.name,
@@ -1641,7 +1778,7 @@ function AppContent() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "NTN Missing Results");
     const dateStr = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(wb, `NTN_Missing_Results_${dateStr}.xlsx`);
+    XLSX.writeFile(wb, `NTN_Missing_Updated_Results_${dateStr}.xlsx`);
   };
 
   const exportNtnAutoUpdateResults = () => {
@@ -2010,13 +2147,50 @@ function AppContent() {
     setSuccessMessage('Record deleted successfully');
     setTimeout(() => setSuccessMessage(''), 3000);
 
+    // Optimistically update ntn_records and mdi_database
+    if (collectionName === 'ntn_records') {
+      setNtnRecords(prev => prev.filter(r => r.id !== id));
+    } else if (collectionName === 'mdi_database') {
+      setMdiDatabase(prev => prev.filter(r => r.id !== id));
+    }
+
     try {
-      const { error } = await supabase
-        .from(collectionName)
-        .delete()
-        .eq('id', id);
-      
-      if (error) throw error;
+      if (collectionName === 'ntn_records' || collectionName === 'users' || collectionName === 'mdi_database') {
+        const { error } = await supabase
+          .from(collectionName)
+          .delete()
+          .eq('id', id);
+        
+        if (error) throw error;
+      } else {
+        // Handle local storage deletions
+        if (collectionName === 'hs_code_records') {
+          const updated = hsCodeResults.filter((r: any) => r.id !== id);
+          setHsCodeResults(updated);
+          setRecentHSCodeActivity(updated.slice(0, 5));
+          localStorage.setItem('last_hs_code_results', JSON.stringify(updated));
+        } else if (collectionName === 'missing_records') {
+          const updated = ntnMissingResults.filter((r: any) => r.id !== id);
+          setNtnMissingResults(updated);
+          setRecentNtnMissingActivity(updated.slice(0, 5));
+          localStorage.setItem('last_ntn_missing_results', JSON.stringify(updated));
+        } else if (collectionName === 'auto_update_records') {
+          const updated = ntnAutoUpdateResults.filter((r: any) => r.id !== id);
+          setNtnAutoUpdateResults(updated);
+          setRecentNtnAutoUpdateActivity(updated.slice(0, 5));
+          localStorage.setItem('last_ntn_auto_update_results', JSON.stringify(updated));
+        } else if (collectionName === 'bucket_shop_records') {
+          const updated = bucketShopResults.filter((r: any) => r.id !== id);
+          setBucketShopResults(updated);
+          setRecentBucketShopActivity(updated.slice(0, 5));
+          localStorage.setItem('last_bucket_shop_results', JSON.stringify(updated));
+        } else if (collectionName === 'different_lines_records') {
+          const updated = differentLinesResults.filter((r: any) => r.id !== id);
+          setDifferentLinesResults(updated);
+          setRecentDifferentLinesActivity(updated.slice(0, 5));
+          localStorage.setItem('last_different_lines_results', JSON.stringify(updated));
+        }
+      }
     } catch (err) {
       console.error('Error deleting record:', err);
       setError('Failed to delete record from database.');
@@ -2030,21 +2204,33 @@ function AppContent() {
     setIsDeletingBulk(true);
     setSuccessMessage(`Deleting ${count} records...`);
     
+    // Optimistic UI update
+    setNtnRecords(prev => prev.filter(r => !selectedNtnRecords.includes(r.id)));
+    
     try {
       console.log(`Attempting to delete ${count} records:`, selectedNtnRecords);
-      const { error } = await supabase
-        .from('ntn_records')
-        .delete()
-        .in('id', selectedNtnRecords);
       
-      if (error) throw error;
+      // Since .in() might be failing silently due to unseen Supabase constraints,
+      // we fall back to individual .eq() deletes just like the single delete function.
+      const chunkSize = 20;
+      for (let i = 0; i < selectedNtnRecords.length; i += chunkSize) {
+        const chunk = selectedNtnRecords.slice(i, i + chunkSize);
+        const promises = chunk.map(id => 
+          supabase.from('ntn_records').delete().eq('id', id)
+        );
+        const results = await Promise.all(promises);
+        const firstError = results.find(r => r.error);
+        if (firstError) throw firstError.error;
+      }
 
       console.log('Bulk delete successful');
       setSuccessMessage(`${count} records deleted successfully`);
       setSelectedNtnRecords([]);
+      window.alert(`${count} records successfully deleted from database!`);
       setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting records:', err);
+      window.alert(`Delete Error: ${err.message || JSON.stringify(err)}`);
       setError('Failed to delete some records from database.');
     } finally {
       setIsDeletingBulk(false);
@@ -2085,8 +2271,7 @@ function AppContent() {
     }
   };
 
-  const handleAddRecord = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAddRecord = async (recordToAdd: any) => {
     if (!user) return;
     
     const collectionName = getCollectionName(activeTab);
@@ -2097,18 +2282,18 @@ function AppContent() {
     if (activeTab === 'HS Code') {
       newEntry = {
         ...newEntry,
-        tracking: newRecord.ref,
-        shipper: newRecord.name,
-        hs: newRecord.ntn,
-        ceCode: newRecord.cnic,
+        tracking: recordToAdd.ref,
+        shipper: recordToAdd.name,
+        hs: recordToAdd.ntn,
+        ceCode: recordToAdd.cnic,
         service: 'Air Freight',
         color: 'blue',
       };
     } else if (activeTab === 'NTN Missing') {
       newEntry = {
         ...newEntry,
-        tracking: newRecord.ref,
-        company: newRecord.name,
+        tracking: recordToAdd.ref,
+        company: recordToAdd.name,
         name: 'Pending',
         service: 'Express',
         color: 'orange',
@@ -2116,17 +2301,17 @@ function AppContent() {
     } else if (activeTab === 'Auto Update') {
       newEntry = {
         ...newEntry,
-        tracking: newRecord.ref,
-        name: newRecord.name,
-        ntn: newRecord.ntn,
+        tracking: recordToAdd.ref,
+        name: recordToAdd.name,
+        ntn: recordToAdd.ntn,
         status: 'Pending',
         color: 'blue',
       };
     } else if (activeTab === 'Bucket Shop') {
       newEntry = {
         ...newEntry,
-        tracking: newRecord.ref,
-        company: newRecord.name,
+        tracking: recordToAdd.ref,
+        company: recordToAdd.name,
         name: 'Pending',
         service: 'Express',
         color: 'teal',
@@ -2134,8 +2319,8 @@ function AppContent() {
     } else if (activeTab === 'Different Lines') {
       newEntry = {
         ...newEntry,
-        tracking: newRecord.ref,
-        company: newRecord.name,
+        tracking: recordToAdd.ref,
+        company: recordToAdd.name,
         name: 'Pending',
         addr: 'Pending',
         service: 'Express',
@@ -2144,17 +2329,17 @@ function AppContent() {
     } else {
       newEntry = {
         ...newEntry,
-        ...newRecord,
+        ...recordToAdd,
       };
     }
 
     try {
       setIsAddModalOpen(false);
       const addedTab = activeTab;
-      const currentNewRecord = { ...newRecord };
+      const currentNewRecord = { ...recordToAdd };
       setNewRecord({ ref: '', name: '', ntn: '', cnic: '', status: 'Active', color: 'emerald' });
 
-      if (activeTab === 'NTN Search') {
+      if (activeTab === 'NTN Search' || activeTab === 'Dashboard') {
         const { error } = await supabase
           .from('ntn_records')
           .insert([{
@@ -2271,7 +2456,7 @@ function AppContent() {
       if (subFilter === 'high-value') return matchesSearch && val >= 500;
       if (subFilter === 'advance-update') {
         if (isAdvanceUpdateApplied) {
-          return matchesSearch && row.isAdvanceUpdate && !row.isMissing;
+          return matchesSearch && row.isAdvanceUpdate && row.isUpdateApplied;
         }
         return matchesSearch && row.isAdvanceUpdate;
       }
@@ -4320,7 +4505,13 @@ function AppContent() {
                   {ntnMissingResults.length > 0 && (
                     <div className="flex items-center space-x-3">
                       <button 
-                        onClick={() => setNtnMissingResults([])}
+                        onClick={() => {
+                          setNtnMissingResults([]);
+                          setIsAdvanceUpdateApplied(false);
+                          setSelectedHighValueIds(new Set());
+                          const fileInput = document.getElementById('ntn-missing-upload') as HTMLInputElement;
+                          if (fileInput) fileInput.value = '';
+                        }}
                         className="px-6 py-3 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-all flex items-center space-x-2"
                       >
                         <Trash2 size={18} />
@@ -4431,7 +4622,7 @@ function AppContent() {
                             <td className="py-4">
                               <div className="flex items-center space-x-2">
                                 <p className="text-sm font-bold text-gray-800">{row.shipper}</p>
-                                {row.value >= 500 && (row.foundInDb || row.isAdvanceUpdate) && (
+                                {row.value >= 500 && (
                                   <span className="text-[9px] font-black bg-red-500 text-white px-2 py-0.5 rounded-full tracking-tighter whitespace-nowrap">HIGH VALUE</span>
                                 )}
                               </div>
@@ -5004,7 +5195,15 @@ function AppContent() {
                 </div>
               </div>
 
-              {mdiCheckerResults.length > 0 && (
+              {isProcessing && (
+                <div className="mt-12 flex flex-col items-center justify-center py-20 bg-gray-50/50 rounded-[32px] border border-gray-100">
+                  <div className="w-16 h-16 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                  <h3 className="text-xl font-black text-gray-800">Processing File...</h3>
+                  <p className="text-gray-500 font-medium mt-2">Analyzing records and validating MIDs.</p>
+                </div>
+              )}
+
+              {!isProcessing && mdiCheckerResults.length > 0 && (
                 <div className="mt-10">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
                     {[
@@ -5056,7 +5255,13 @@ function AppContent() {
                               </span>
                             </td>
                             <td className="py-4">
-                              <p className="text-sm font-bold text-gray-800 truncate max-w-xs">{row.description}</p>
+                              <p 
+                                onClick={() => setExpandedDescId(expandedDescId === row.id ? null : row.id)}
+                                className={`text-sm font-bold text-gray-800 cursor-pointer hover:text-blue-600 transition-colors ${expandedDescId === row.id ? 'whitespace-normal max-w-[400px]' : 'truncate max-w-xs'}`}
+                                title="Click to view full description"
+                              >
+                                {row.description}
+                              </p>
                             </td>
                             <td className="py-4">
                               <p className="text-sm font-bold text-gray-700">{row.shipper}</p>
@@ -5109,233 +5314,10 @@ function AppContent() {
           </div>
 
           {/* Edit Modal */}
-          <AnimatePresence>
-            {isEditModalOpen && editingRecord && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="absolute inset-0 bg-[#0a192f]/60 backdrop-blur-sm"
-                />
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                  className="bg-white rounded-[32px] w-full max-w-lg relative shadow-2xl overflow-hidden"
-                >
-                  <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                    <div>
-                      <h3 className="text-xl font-black text-gray-800 tracking-tight">Edit Company Details</h3>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Ref ID: #{editingRecord.ref || editingRecord.tracking}</p>
-                    </div>
-                    <button 
-                      onClick={() => setIsEditModalOpen(false)}
-                      className="p-2 hover:bg-white rounded-xl transition-all text-gray-400 hover:text-gray-600 shadow-sm"
-                    >
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <form onSubmit={saveEdit} className="p-8 space-y-6">
-                    <div className="grid grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Ref Number</label>
-                        <input 
-                          ref={firstInputRef}
-                          type="text" 
-                          value={editingRecord.ref || editingRecord.tracking || ''}
-                          onChange={(e) => setEditingRecord({ ...editingRecord, ref: e.target.value })}
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Company Name</label>
-                        <input 
-                          type="text" 
-                          value={editingRecord.name || editingRecord.shipper || editingRecord.company || ''}
-                          onChange={(e) => setEditingRecord({ ...editingRecord, name: e.target.value })}
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">NTN Number</label>
-                        <div className="relative">
-                          <input 
-                            type="text" 
-                            value={editingRecord.ntn || ''}
-                            onChange={(e) => setEditingRecord({ ...editingRecord, ntn: e.target.value })}
-                            className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm pr-12"
-                          />
-                          <button 
-                            type="button"
-                            onClick={() => handleCopy(editingRecord.ntn || '', 'edit-modal-ntn')}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white rounded-lg text-gray-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:text-blue-600 transition-all shadow-sm border border-transparent hover:border-gray-100"
-                            title="Copy NTN"
-                          >
-                            {copiedId === 'edit-modal-ntn' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">CNIC / Ref</label>
-                        <div className="relative">
-                          <input 
-                            type="text" 
-                            value={editingRecord.cnic || ''}
-                            onChange={(e) => setEditingRecord({ ...editingRecord, cnic: e.target.value })}
-                            className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm pr-12"
-                          />
-                          <button 
-                            type="button"
-                            onClick={() => handleCopy(editingRecord.cnic || '', 'edit-modal-cnic')}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white rounded-lg text-gray-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:text-blue-600 transition-all shadow-sm border border-transparent hover:border-gray-100"
-                            title="Copy CNIC"
-                          >
-                            {copiedId === 'edit-modal-cnic' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Status</label>
-                      <select 
-                        value={editingRecord.status}
-                        onChange={(e) => setEditingRecord({ ...editingRecord, status: e.target.value, color: e.target.value === 'Active' ? 'emerald' : 'red' })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-sm"
-                      >
-                        <option value="Active">Active</option>
-                        <option value="Expired">Expired</option>
-                        <option value="Filled">Filled</option>
-                        <option value="Not Found">Not Found</option>
-                      </select>
-                    </div>
-
-                    <div className="pt-4 flex items-center space-x-4">
-                      <button 
-                        type="button"
-                        onClick={() => setIsEditModalOpen(false)}
-                        className="flex-1 px-6 py-3.5 rounded-2xl font-bold text-gray-500 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 transition-all border border-gray-100"
-                      >
-                        Cancel
-                      </button>
-                      <button 
-                        type="submit"
-                        className="flex-1 px-6 py-3.5 rounded-2xl font-bold bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-lg shadow-blue-600/20"
-                      >
-                        Save Changes
-                      </button>
-                    </div>
-                  </form>
-                </motion.div>
-              </div>
-            )}
-          </AnimatePresence>
+          <EditRecordModal isOpen={isEditModalOpen} initialRecord={editingRecord} onClose={() => setIsEditModalOpen(false)} onSave={saveEdit} handleCopy={handleCopy} copiedId={copiedId} />
           
           {/* Add New Record Modal */}
-          <AnimatePresence>
-            {isAddModalOpen && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="absolute inset-0 bg-[#0a192f]/60 backdrop-blur-sm"
-                />
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                  className="bg-white rounded-[32px] w-full max-w-lg relative shadow-2xl overflow-hidden"
-                >
-                  <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-blue-50/50">
-                    <div>
-                      <h3 className="text-xl font-black text-gray-800 tracking-tight">Add New {activeTab === 'HS Code' ? 'HS Code' : 'Record'}</h3>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Enter details for {activeTab}</p>
-                    </div>
-                    <button 
-                      onClick={() => setIsAddModalOpen(false)}
-                      className="p-2 hover:bg-white rounded-xl transition-all text-gray-400 hover:text-gray-600 shadow-sm"
-                    >
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleAddRecord} className="p-8 space-y-6">
-                    <div className="grid grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">
-                          {activeTab === 'HS Code' ? 'Tracking Number' : 'Ref Number'}
-                        </label>
-                        <input 
-                          type="text" 
-                          placeholder={activeTab === 'HS Code' ? 'e.g. TRK-123' : 'e.g. 8601'}
-                          value={newRecord.ref}
-                          onChange={(e) => setNewRecord({ ...newRecord, ref: e.target.value })}
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">
-                          {activeTab === 'HS Code' ? 'Shipper Company' : 'Company Name'}
-                        </label>
-                        <input 
-                          type="text" 
-                          placeholder="Enter name"
-                          value={newRecord.name}
-                          onChange={(e) => setNewRecord({ ...newRecord, name: e.target.value })}
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">
-                          {activeTab === 'HS Code' ? 'HS Code' : 'NTN Number'}
-                        </label>
-                        <input 
-                          type="text" 
-                          placeholder={activeTab === 'HS Code' ? 'e.g. 8471.30' : 'e.g. 42301-1234567-1'}
-                          value={newRecord.ntn}
-                          onChange={(e) => setNewRecord({ ...newRecord, ntn: e.target.value })}
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">
-                          {activeTab === 'HS Code' ? 'CE Code' : 'CNIC Number'}
-                        </label>
-                        <input 
-                          type="text" 
-                          placeholder={activeTab === 'HS Code' ? 'e.g. CE-123' : 'e.g. 35202-9876543-1'}
-                          value={newRecord.cnic}
-                          onChange={(e) => setNewRecord({ ...newRecord, cnic: e.target.value })}
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono text-sm"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="pt-4 flex items-center space-x-4">
-                      <button 
-                        type="button"
-                        onClick={() => setIsAddModalOpen(false)}
-                        className="flex-1 px-6 py-3.5 rounded-2xl font-bold text-gray-500 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 transition-all border border-gray-100"
-                      >
-                        Cancel
-                      </button>
-                      <button 
-                        type="submit"
-                        className="flex-1 px-6 py-3.5 rounded-2xl font-bold bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-lg shadow-blue-600/20"
-                      >
-                        Add Record
-                      </button>
-                    </div>
-                  </form>
-                </motion.div>
-              </div>
-            )}
-          </AnimatePresence>
+          <AddRecordModal isOpen={isAddModalOpen} activeTab={activeTab} onClose={() => setIsAddModalOpen(false)} onSave={handleAddRecord} />
 
 
 
@@ -5584,9 +5566,7 @@ function AppContent() {
                             setTimeout(() => setError(''), 3000);
                             return;
                           }
-                          if (window.confirm(`Are you sure you want to delete ${selectedNtnRecords.length} records?`)) {
-                            confirmDeleteSelectedNtnRecords();
-                          }
+                          confirmDeleteSelectedNtnRecords();
                         }}
                         disabled={isDeletingBulk}
                         className={`px-6 py-3 rounded-xl font-bold transition-all flex items-center space-x-2 ${
