@@ -1938,7 +1938,17 @@ function AppContent() {
     const shipperName = b2cSheetsResults[0]?.shipper || 'B2C';
     const fileName = `${shipperName} E-Commerce ${dd}-${mm}-${yyyy}.xlsx`;
     
-    XLSX.writeFile(wb, fileName);
+    // Use Blob based download to avoid "Dangerous File" warnings in Chrome
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const exportMdiCheckerResults = () => {
