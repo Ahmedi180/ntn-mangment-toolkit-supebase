@@ -1,6 +1,6 @@
 import React, { useState, useEffect, Component, ReactNode, useRef, useMemo, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import Papa from 'papaparse';
 import { supabase } from './supabase';
 import SplashScreen from './components/SplashScreen';
@@ -290,6 +290,7 @@ const Sidebar = memo(({
     { icon: ShoppingBag, label: 'Bucket Shop' },
     { icon: Layers, label: 'Different Lines' },
     { icon: Activity, label: 'MDI Checker' },
+    { icon: FileSpreadsheet, label: 'B2C Sheets' },
     ...(user?.email === ADMIN_EMAIL ? [{ icon: ShieldCheck, label: 'User Management' }] : []),
     { icon: User, label: 'Profile' },
     { icon: Lock, label: 'Security', hasSubmenu: true },
@@ -1189,6 +1190,13 @@ function AppContent() {
   const [mdiFilter, setMdiFilter] = useState('all');
   const [expandedDescId, setExpandedDescId] = useState<string | null>(null);
 
+  const [b2cSheetsResults, setB2cSheetsResults] = useState<any[]>(() => {
+    const saved = localStorage.getItem('b2cSheetsResults');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [b2cSearchQuery, setB2cSearchQuery] = useState('');
+  const [isB2cProcessed, setIsB2cProcessed] = useState(false);
+
   // Persist tool results to local storage
   useEffect(() => {
     localStorage.setItem('last_hs_code_results', JSON.stringify(hsCodeResults));
@@ -1213,6 +1221,10 @@ function AppContent() {
   useEffect(() => {
     localStorage.setItem('last_mdi_checker_results', JSON.stringify(mdiCheckerResults));
   }, [mdiCheckerResults]);
+
+  useEffect(() => {
+    localStorage.setItem('b2cSheetsResults', JSON.stringify(b2cSheetsResults));
+  }, [b2cSheetsResults]);
 
 
   const [lockPin, setLockPin] = useState('1234');
@@ -1718,6 +1730,217 @@ function AppContent() {
     }, 800);
   };
 
+  const processB2cSheetsFile = (data: any[]) => {
+    setIsProcessing(true);
+    setTimeout(() => {
+      const results = data.map((row, index) => {
+        // Parse Quantity
+        const rawQtyStr = (row['CE Item QtyUnit 1'] || '').toString();
+        let qty = 1;
+        const qtyMatch = rawQtyStr.match(/\|([0-9.]+)\|\|/);
+        if (qtyMatch) {
+          qty = parseFloat(qtyMatch[1]) || 1;
+        }
+
+        // Country Mapping
+        const rawCountry = (row['Recip Cntry'] || '').toString().trim().toUpperCase();
+        const countryMap: Record<string, string> = {
+          'US': 'UNITED STATES',
+          'CA': 'CANADA',
+          'GB': 'UNITED KINGDOM',
+          'UK': 'UNITED KINGDOM',
+          'AU': 'AUSTRALIA',
+          'DE': 'GERMANY',
+          'FR': 'FRANCE',
+          'IT': 'ITALY',
+          'ES': 'SPAIN',
+          'NL': 'NETHERLANDS',
+          'AE': 'UNITED ARAB EMIRATES',
+          'SA': 'SAUDI ARABIA',
+          'PK': 'PAKISTAN',
+          'BE': 'BELGIUM',
+          'IE': 'IRELAND',
+          'NZ': 'NEW ZEALAND',
+          'SG': 'SINGAPORE',
+          'HK': 'HONG KONG',
+          'JP': 'JAPAN',
+          'CN': 'CHINA',
+          'IN': 'INDIA',
+          'MY': 'MALAYSIA',
+          'TR': 'TURKEY',
+          'CH': 'SWITZERLAND',
+          'AT': 'AUSTRIA',
+          'SE': 'SWEDEN',
+          'NO': 'NORWAY',
+          'DK': 'DENMARK',
+          'FI': 'FINLAND',
+          'PL': 'POLAND',
+          'PO': 'POLAND', // Sometimes used colloquially
+          'PT': 'PORTUGAL',
+          'GR': 'GREECE',
+          'QA': 'QATAR',
+          'KW': 'KUWAIT',
+          'OM': 'OMAN',
+          'BH': 'BAHRAIN',
+          'BR': 'BRAZIL',
+          'MX': 'MEXICO',
+          'ZA': 'SOUTH AFRICA'
+        };
+        const countryFull = countryMap[rawCountry] || rawCountry;
+
+        // Extract NTN from Shipper Company
+        let company = (row['Shipper Company'] || '').toString().trim();
+        let extractedNtn = '';
+        const ntnMatch = company.match(NTN_REGEX);
+        if (ntnMatch) {
+          extractedNtn = cleanNtnValue(ntnMatch[0]);
+          company = company.replace(NTN_REGEX, '').replace(/NTN\s*#?\s*/i, '').trim();
+        }
+
+        let rawWeight = parseFloat(row['Shpmt Weight']) || 0;
+        let rawUom = (row['Weight UOM'] || 'KG').toString().toUpperCase().trim();
+        
+        // Convert LBS to KG if UOM is 'L'
+        if (rawUom === 'L' || rawUom === 'LB' || rawUom === 'LBS') {
+          rawWeight = Number((rawWeight * 0.4536).toFixed(1));
+          rawUom = 'KG';
+        }
+
+        return {
+          id: index.toString(),
+          tracking: (row['Tracking Number'] || '').toString().trim(),
+          shipper: company,
+          ntn: extractedNtn,
+          qty: qty,
+          unitValue: parseFloat(row['Customs Value']) || 0,
+          countryFull: countryFull,
+          rawCountry: rawCountry,
+          desc: (row['Commodity Desc'] || row['CE Commodity Description'] || '').toString(),
+          originLoc: (row['Origin Loc Cd'] || '').toString(),
+          weight: rawWeight.toString(),
+          weightUOM: rawUom,
+          recipName: (row['Recipient Name And Company'] || '').toString(),
+          destCity: (row['Dest City Name'] || '').toString(),
+          recipPhone: (row['Recip Phone'] || '').toString(),
+          postalCode: (row['Recip Postal Code'] || '').toString(),
+          originalData: row
+        };
+      });
+      setB2cSheetsResults(results);
+      setIsProcessing(false);
+      setSuccessMessage(`Processed ${results.length} B2C records!`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    }, 800);
+  };
+
+  const updateB2cRecord = (id: string, field: 'qty' | 'unitValue', value: number) => {
+    setB2cSheetsResults(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const handleProcessB2cData = () => {
+    setIsProcessing(true);
+    setTimeout(() => {
+      setIsB2cProcessed(true);
+      setIsProcessing(false);
+      setSuccessMessage('Data Processed successfully! Ready for export.');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    }, 1200);
+  };
+
+  const exportB2cSheetsResults = () => {
+    if (b2cSheetsResults.length === 0) return;
+    
+    // Exact mapping as requested for Clothoo E-Commerce sheet
+    const headers = [
+      'HS_Code', 'Declared_Description', 'Origin', 'Quantity', 'Unit_Value', 
+      'IMO_Class', 'HAWB_Number', 'Parcel_Category', 'Sample_Category', 
+      'Item_Export_Type', 'Gross_Weight', 'Unit_Weight_Code', 'Identity_Type', 
+      'Identity_Number', 'Exporter_Name', 'Exporter_Address', 'Consignee_Name', 
+      'Consignee_Address', 'Consignee_Country', 'Consignee_Country_Sub_Division', 
+      'Consignee_City', 'Consignee_Street_PO_BOX', 'Consignee_Postal_Code', 
+      'Repair_Replacement_ReturnFaulty_RejectedGoods', 'Remarks', 'GD_NO_Complete', 'Shipper_Name'
+    ];
+
+    const dataRows = b2cSheetsResults.map(row => [
+      '', 
+      'B2C JACKETS', 
+      'Pakistan', 
+      row.qty, 
+      row.qty > 0 ? Math.floor(row.unitValue / row.qty) : 0, 
+      '', 
+      String(row.tracking).trim(), // Index 6
+      'E-Commerce', 
+      'General Goods', 
+      'Online Sale/Purchase',
+      parseFloat(row.weight) || 1.5,
+      row.weightUOM,
+      row.ntn ? 'NTN' : '',
+      row.ntn ? row.ntn.replace(/[^0-9]/g, '') : '',
+      row.shipper,
+      row.shipper,
+      row.recipName,
+      row.destCity,
+      row.countryFull,
+      row.countryFull,
+      row.destCity,
+      row.postalCode,
+      row.postalCode,
+      '',
+      '',
+      '',
+      ''
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+
+    // Definitively force tracking numbers (Column G, Index 6) to be strings
+    for (let i = 1; i <= b2cSheetsResults.length; i++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: i, c: 6 });
+      if (ws[cellAddress]) {
+        ws[cellAddress].t = 's';
+        ws[cellAddress].z = '@';
+      }
+    }
+
+    // Apply Styles (Requires xlsx-js-style)
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:AA1');
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!ws[cellAddress]) continue;
+        
+        ws[cellAddress].s = {
+          border: {
+            top: { style: "thin", color: { auto: 1 } },
+            bottom: { style: "thin", color: { auto: 1 } },
+            left: { style: "thin", color: { auto: 1 } },
+            right: { style: "thin", color: { auto: 1 } }
+          }
+        };
+
+        if (R === 0) { // Header row
+          ws[cellAddress].s.fill = { fgColor: { rgb: "BDD7EE" } }; // Light blue color
+          ws[cellAddress].s.font = { bold: true };
+          ws[cellAddress].s.alignment = { horizontal: "center", vertical: "center" };
+        }
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "B2C E-Commerce");
+
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, '0');
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const yyyy = today.getFullYear();
+    
+    // Fallback to "B2C" if shipper is not found
+    const shipperName = b2cSheetsResults[0]?.shipper || 'B2C';
+    const fileName = `${shipperName} E-Commerce ${dd}-${mm}-${yyyy}.xlsx`;
+    
+    XLSX.writeFile(wb, fileName);
+  };
+
   const exportMdiCheckerResults = () => {
     const filteredMdiRecords = mdiCheckerResults.filter(row => mdiFilter === 'all' || row.status === mdiFilter);
     if (filteredMdiRecords.length === 0) return;
@@ -2056,6 +2279,39 @@ function AppContent() {
     }
   };
 
+  const handleB2cSheetsFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    const extension = file.name.split('.').pop()?.toLowerCase();
+
+    if (extension === 'csv') {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        dynamicTyping: false, // Ensure numbers are kept as strings
+        complete: (results) => {
+          setIsB2cProcessed(false);
+          processB2cSheetsFile(results.data);
+        }
+      });
+    } else if (['xlsx', 'xls'].includes(extension || '')) {
+      reader.onload = (evt) => {
+        const bstr = evt.target?.result;
+        // Use cellText: true to ensure formatted text is available
+        const wb = XLSX.read(bstr, { type: 'binary', cellText: true, cellNF: true });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        // Use raw: false to get the formatted text (full number) instead of scientific value
+        const data = XLSX.utils.sheet_to_json(ws, { raw: false });
+        setIsB2cProcessed(false);
+        processB2cSheetsFile(data);
+      };
+      reader.readAsBinaryString(file);
+    }
+  };
+
   const handleSearch = () => {
     if (!searchQuery) return;
     setIsSearching(true);
@@ -2182,6 +2438,9 @@ function AppContent() {
         } else if (collectionName === 'bucket_shop_records') {
           const updated = bucketShopResults.filter((r: any) => r.id !== id);
           setBucketShopResults(updated);
+        } else if (collectionName === 'b2c_sheets_records') {
+          const updated = b2cSheetsResults.filter((r: any) => r.id !== id);
+          setB2cSheetsResults(updated);
           setRecentBucketShopActivity(updated.slice(0, 5));
           localStorage.setItem('last_bucket_shop_results', JSON.stringify(updated));
         } else if (collectionName === 'different_lines_records') {
@@ -2380,6 +2639,10 @@ function AppContent() {
           const full = { ...entry, company: currentNewRecord.name, name: 'Pending', service: 'Express', color: 'teal' };
           const updated = [full, ...bucketShopResults];
           setBucketShopResults(updated);
+        } else if (activeTab === 'B2C Sheets') {
+          const full = { ...entry, shipper: currentNewRecord.name, countryFull: 'Pending', color: 'indigo' };
+          const updated = [full, ...b2cSheetsResults];
+          setB2cSheetsResults(updated);
           setRecentBucketShopActivity(updated.slice(0, 5));
           localStorage.setItem('last_bucket_shop_results', JSON.stringify(updated));
         } else if (activeTab === 'Different Lines') {
@@ -5295,8 +5558,177 @@ function AppContent() {
           </div>
         )}
 
+        {activeTab === 'B2C Sheets' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-[40px] p-8 shadow-sm border border-gray-100">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h2 className="text-3xl font-black text-gray-800 tracking-tight">B2C Sheets Tool</h2>
+                  <p className="text-gray-400 font-medium mt-1">Process quantities, mapped countries, and export ready-to-use E-Commerce data</p>
+                </div>
+                <div className="flex items-center space-x-3">
+                  {b2cSheetsResults.length > 0 && (
+                    <div className="flex items-center space-x-3">
+                      <div className="relative w-64">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                        <input 
+                          type="text" 
+                          placeholder="Search Last 4 Digits..." 
+                          value={b2cSearchQuery}
+                          onChange={(e) => setB2cSearchQuery(e.target.value)}
+                          className="w-full bg-gray-50 border-none rounded-2xl pl-12 pr-4 py-3 text-sm font-bold text-gray-800 focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <button 
+                        onClick={() => setB2cSheetsResults([])}
+                        className="px-6 py-3 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-all flex items-center space-x-2"
+                      >
+                        <Trash2 size={18} />
+                        <span>Clear</span>
+                      </button>
+                      {!isB2cProcessed ? (
+                        <>
+                          <button 
+                            onClick={exportB2cSheetsResults}
+                            className="px-6 py-3 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all flex items-center space-x-2"
+                          >
+                            <Download size={18} />
+                            <span>Export Preview</span>
+                          </button>
+                          <button 
+                            onClick={handleProcessB2cData}
+                            className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all flex items-center space-x-2 animate-pulse"
+                          >
+                            <Zap size={20} />
+                            <span>Process Data</span>
+                          </button>
+                        </>
+                      ) : (
+                        <button 
+                          onClick={exportB2cSheetsResults}
+                          className="px-8 py-3 bg-emerald-600 text-white rounded-2xl font-black shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all flex items-center space-x-2"
+                        >
+                          <Download size={20} />
+                          <span>Export Final Sheets</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <button 
+                    onClick={() => document.getElementById('b2c-sheets-upload')?.click()}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center space-x-2"
+                  >
+                    <Upload size={18} />
+                    <span>Upload CSV/Excel</span>
+                  </button>
+                  <input 
+                    id="b2c-sheets-upload"
+                    type="file"
+                    accept=".csv, .xlsx, .xls"
+                    className="hidden"
+                    onChange={handleB2cSheetsFileUpload}
+                  />
+                </div>
+              </div>
+
+              {isProcessing && (
+                <div className="mt-12 flex flex-col items-center justify-center py-20 bg-gray-50/50 rounded-[32px] border border-gray-100">
+                  <div className="w-16 h-16 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                  <h3 className="text-xl font-black text-gray-800">Processing File...</h3>
+                  <p className="text-gray-500 font-medium mt-2">Extracting quantities and mapping countries.</p>
+                </div>
+              )}
+
+              {!isProcessing && b2cSheetsResults.length > 0 && (
+                <div className="mt-10">
+                  <div className="overflow-x-auto rounded-3xl border border-gray-100">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-left bg-gray-50/50">
+                          <th className="py-4 pl-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Tracking Number</th>
+                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Shipper Company</th>
+                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Extracted NTN</th>
+                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Country</th>
+                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Quantity</th>
+                          <th className="py-4 pr-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {b2cSheetsResults
+                          .filter(row => !b2cSearchQuery || row.tracking.slice(-4).includes(b2cSearchQuery))
+                          .map((row, i) => (
+                          <tr key={i} className={`hover:bg-gray-50/30 transition-all ${b2cSearchQuery && row.tracking.slice(-4).includes(b2cSearchQuery) ? 'bg-blue-50/30' : ''}`}>
+                            <td className="py-4 pl-6">
+                              <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">{row.tracking}</span>
+                            </td>
+                            <td className="py-4">
+                              <p className="text-sm font-bold text-gray-800">{row.shipper}</p>
+                            </td>
+                            <td className="py-4">
+                              <span className={`text-[10px] font-mono font-bold px-2 py-1 rounded-lg ${row.ntn ? 'text-emerald-600 bg-emerald-50' : 'text-gray-400 bg-gray-50'}`}>
+                                {row.ntn || 'N/A'}
+                              </span>
+                            </td>
+                            <td className="py-4">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold text-gray-800">{row.countryFull}</span>
+                                <span className="text-[10px] font-bold text-gray-400">{row.rawCountry}</span>
+                              </div>
+                            </td>
+                            <td className="py-4">
+                              {!isB2cProcessed ? (
+                                <input 
+                                  type="number" 
+                                  min="1"
+                                  value={row.qty || ''}
+                                  onChange={(e) => updateB2cRecord(row.id, 'qty', parseInt(e.target.value) || 0)}
+                                  className="w-20 px-3 py-1 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                              ) : (
+                                <span className="text-sm font-bold text-gray-800 px-3 py-1">{row.qty}</span>
+                              )}
+                            </td>
+                            <td className="py-4 pr-6 text-right">
+                              <div className="flex items-center justify-end space-x-1">
+                                <span className="text-xs font-bold text-gray-400">$</span>
+                                {!isB2cProcessed ? (
+                                  <input 
+                                    type="number" 
+                                    min="0"
+                                    value={row.unitValue || ''}
+                                    onChange={(e) => updateB2cRecord(row.id, 'unitValue', parseFloat(e.target.value) || 0)}
+                                    className="w-24 px-3 py-1 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none text-right"
+                                  />
+                                ) : (
+                                  <span className="text-sm font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl">
+                                    ${row.unitValue.toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {!isProcessing && b2cSheetsResults.length === 0 && (
+                <div className="mt-10 py-20 border-2 border-dashed border-gray-100 rounded-[32px] flex flex-col items-center justify-center text-center">
+                  <div className="w-20 h-20 bg-gray-50 rounded-[24px] flex items-center justify-center text-gray-300 mb-6">
+                    <FileSpreadsheet size={40} />
+                  </div>
+                  <h3 className="text-xl font-black text-gray-800 tracking-tight">No B2C Data Uploaded</h3>
+                  <p className="text-gray-400 font-medium mt-2 max-w-xs">Upload an Excel or CSV file to process B2C Records</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Placeholder for other tabs */}
-        {!['Dashboard', 'NTN Search', 'Profile', 'HS Code', 'NTN Missing', 'NTN Auto Update', 'Bucket Shop', 'Different Lines', 'MDI Checker'].includes(activeTab) && (
+        {!['Dashboard', 'NTN Search', 'Profile', 'HS Code', 'NTN Missing', 'NTN Auto Update', 'Bucket Shop', 'Different Lines', 'MDI Checker', 'B2C Sheets'].includes(activeTab) && (
               <div className="flex flex-col items-center justify-center h-full py-20">
                 <div className="w-24 h-24 bg-gray-100 rounded-[32px] flex items-center justify-center text-gray-300 mb-6">
                   <Database size={48} />
