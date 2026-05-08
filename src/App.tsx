@@ -93,7 +93,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 // Enhanced NTN pattern to include alphanumeric NTNs like A123457, B123456, D123457 and handle optional hyphens
 // Added support for NTN.NO, NTN.N0, etc.
 // Stricter digit matching to avoid picking up random text
-const NTN_REGEX = /\b(NTN(?:\.NO|\.N0|\s*NO|\s*N0|\s*[:#.]?)\s*[A-Z]?\d{6,8}(?:-\d)?)\b|\b(\d{5}-\d{7}-\d)\b|\b(\d{13})\b|\b(\d{7,8}-\d)\b|\b(\d{7,8})\b|\b([A-Z]\d{6,8})\b|\b([A-Z]-\d{6,8})\b/i;
+const NTN_REGEX = /(\d{6,13}(?:-\d)?)/;
 
 const cleanNtnValue = (ntn: string) => {
   if (!ntn) return '';
@@ -290,6 +290,7 @@ const Sidebar = memo(({
     { icon: ShoppingBag, label: 'Bucket Shop' },
     { icon: Layers, label: 'Different Lines' },
     { icon: Activity, label: 'MDI Checker' },
+    { icon: Sliders, label: 'CTRL/AFR Checker' },
     { icon: FileSpreadsheet, label: 'B2C Sheets' },
     ...(user?.email === ADMIN_EMAIL ? [{ icon: ShieldCheck, label: 'User Management' }] : []),
     { icon: User, label: 'Profile' },
@@ -1167,6 +1168,7 @@ function AppContent() {
     return saved ? JSON.parse(saved) : [];
   });
   const [recentNtnMissingActivity, setRecentNtnMissingActivity] = useState<any[]>([]);
+  const [isHighValueMissingExpanded, setIsHighValueMissingExpanded] = useState(false);
   const [ntnAutoUpdateResults, setNtnAutoUpdateResults] = useState<any[]>(() => {
     const saved = localStorage.getItem('last_ntn_auto_update_results');
     return saved ? JSON.parse(saved) : [];
@@ -1189,6 +1191,13 @@ function AppContent() {
   const [recentMdiCheckerActivity, setRecentMdiCheckerActivity] = useState<any[]>([]);
   const [mdiFilter, setMdiFilter] = useState('all');
   const [expandedDescId, setExpandedDescId] = useState<string | null>(null);
+
+  const [afrResults, setAfrResults] = useState<any[]>(() => {
+    const saved = localStorage.getItem('last_afr_results');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [recentAfrActivity, setRecentAfrActivity] = useState<any[]>([]);
+  const [afrFilter, setAfrFilter] = useState('all');
 
   const [b2cSheetsResults, setB2cSheetsResults] = useState<any[]>(() => {
     const saved = localStorage.getItem('b2cSheetsResults');
@@ -1221,6 +1230,10 @@ function AppContent() {
   useEffect(() => {
     localStorage.setItem('last_mdi_checker_results', JSON.stringify(mdiCheckerResults));
   }, [mdiCheckerResults]);
+
+  useEffect(() => {
+    localStorage.setItem('last_afr_results', JSON.stringify(afrResults));
+  }, [afrResults]);
 
   useEffect(() => {
     localStorage.setItem('b2cSheetsResults', JSON.stringify(b2cSheetsResults));
@@ -1323,10 +1336,18 @@ function AppContent() {
         const customsValueRaw = row['Customs Value'] || row['value'] || row['Value'] || row['Amount'] || row['Declared Value'] || 0;
         const customsValue = parseFloat(customsValueRaw.toString().replace(/[^0-9.]/g, '')) || 0;
 
-        const cleanedCompany = rawCompany.replace(NTN_REGEX, '').replace(cnicPattern, '').replace(numericIdPattern, '').trim();
-        let hasIdInRow = NTN_REGEX.test(rawCompany) || cnicPattern.test(rawCompany) || numericIdPattern.test(rawCompany) ||
+        const hasIdInRow = NTN_REGEX.test(rawCompany) || cnicPattern.test(rawCompany) || numericIdPattern.test(rawCompany) ||
                          NTN_REGEX.test(name) || cnicPattern.test(name) || numericIdPattern.test(name) ||
                          NTN_REGEX.test(taxId) || cnicPattern.test(taxId) || numericIdPattern.test(taxId);
+
+        const detectId = (str: string) => {
+          const match = str.match(NTN_REGEX) || str.match(cnicPattern) || str.match(numericIdPattern);
+          return match ? match[0] : '';
+        };
+
+        const detectedId = detectId(rawCompany) || detectId(name) || detectId(taxId);
+
+        const cleanedCompany = rawCompany.replace(NTN_REGEX, '').replace(cnicPattern, '').replace(numericIdPattern, '').trim();
         
         const cleanName = (str: string) => str.toLowerCase().replace(/\b(m\/s|pvt|ltd|limited|company|co|industries|industry|leathers|global|international)\b/g, '').replace(/[^a-z0-9]/g, '').trim();
         const normalizedCompany = cleanName(cleanedCompany);
@@ -1338,18 +1359,27 @@ function AppContent() {
         const foundInDb = !!dbMatch;
         const foundNtn = dbMatch ? (dbMatch.ntn || dbMatch.cnic) : '';
         const hasInvalidSuffix = invalidSuffixes.some(regex => regex.test(rawCompany));
-        const isMissing = !hasIdInRow && !foundInDb && !hasInvalidSuffix;
+        
+        // Proper ID means it has a real number or a match in our database
+        const hasProperId = hasIdInRow || foundInDb;
+        
+        // Missing means NO Proper ID and NO Suffix
+        const isMissing = !hasProperId && !hasInvalidSuffix;
         const isAdvanceUpdate = !hasIdInRow && foundInDb;
 
         return {
           id: index.toString(),
           tracking: String(row['Tracking Number'] || row['tracking'] || 'N/A'),
-          shipper: cleanedCompany, // Initial view shows only cleaned company
+          shipper: cleanedCompany, 
           name: name,
           service: String(row['Service Type'] || row['service'] || 'N/A'),
           value: customsValue,
           isMissing,
           isAdvanceUpdate,
+          hasProperId,
+          hasIdInRow,
+          detectedId,
+          hasInvalidSuffix,
           foundInDb,
           foundNtn,
           originalCompany: cleanedCompany,
@@ -1375,13 +1405,16 @@ function AppContent() {
           const isSelected = selectedHighValueIds.has(row.id);
           
           if (!isHighValue || (isHighValue && isSelected)) {
-            return {
-              ...row,
-              shipper: `${row.shipper} ${row.foundNtn}`,
-              isMissing: false,
-              isUpdateApplied: true,
-              color: 'emerald'
-            };
+              return {
+                ...row,
+                shipper: `${row.shipper} ${row.foundNtn}`,
+                name: `${row.name} ${row.foundNtn}`,
+                isMissing: false,
+                isUpdateApplied: true,
+                hasIdInRow: true,
+                detectedId: row.foundNtn,
+                color: 'emerald'
+              };
           }
         }
         return row;
@@ -1968,6 +2001,131 @@ function AppContent() {
     XLSX.utils.book_append_sheet(wb, ws, "MDI Checker Results");
     const dateStr = new Date().toISOString().split('T')[0];
     XLSX.writeFile(wb, `MDI_Checker_Results_${dateStr}.xlsx`);
+  };
+
+  const processAfrFile = (data: any[]) => {
+    setIsProcessing(true);
+    setTimeout(() => {
+      // Rule logic:
+      // 1 = Bill Shipper (Sender) - ONLY if Shipper Company ends with "-A"
+      // 2 = Bill Recipient - Always Show
+      // 3 = Bill Third Party - Always Show
+      // CE Commodity Description must not be blank
+      
+      const results = data.map((row: any, index: number) => {
+        const tracking = (row['Tracking Number'] || row['tracking'] || '').toString().trim();
+        const shipperCompany = (row['Shipper Company'] || row['shipper'] || '').toString().trim();
+        const shipperName = (row['CE Duty Tax Payor Account Latest'] || row['Shipper Name'] || row['name'] || '').toString().trim();
+        const service = (row['Service Type'] || row['service'] || 'N/A').toString().trim();
+        const description = (row['CE Commodity Description'] || row['Manifested Description'] || '').toString().trim();
+        
+        // 1. Skip if description is blank
+        if (!description) return null;
+
+        // 2. Find payment column (check specific name 'Payment-payor-code' first)
+        const paymentVal = row['Payment-payor-code'] || row['Payment'] || row['Payor'] || row['Payment Type'] || row['Bill To'] || row['Payer'] || '';
+        const paymentStr = paymentVal.toString().trim();
+        const payment = parseInt(paymentStr);
+
+        const hasASuffix = shipperCompany.toUpperCase().endsWith('-A');
+        
+        let status = '';
+        let color = '';
+        let showAlert = false;
+
+        // 3. Apply Payment Logic
+        if (payment === 1) {
+          if (hasASuffix) {
+            status = 'CTRL/AFR DETECTED';
+            color = 'amber';
+            showAlert = true;
+          } else {
+            return null; // Ignore Type 1 without -A suffix
+          }
+        } else if (payment === 2 || payment === 3) {
+          if (!hasASuffix) {
+            // New Rule: 2 or 3 without -A is ALSO an alert
+            status = 'CTRL/AFR DETECTED';
+            color = 'amber';
+            showAlert = true;
+          } else {
+            status = payment === 2 ? 'RECIPIENT BILL' : 'THIRD PARTY BILL';
+            color = 'emerald';
+            showAlert = false;
+          }
+        } else {
+          return null; // Ignore if payment type is anything else or missing
+        }
+
+        return {
+          id: index.toString(),
+          tracking,
+          shipper: shipperCompany,
+          name: shipperName,
+          service,
+          payment,
+          status,
+          color,
+          showAlert
+        };
+      }).filter(Boolean);
+
+      setAfrResults(results as any[]);
+      setRecentAfrActivity(results.slice(0, 5));
+      setSubFilter('all');
+      setIsProcessing(false);
+      setSuccessMessage(`${results.length} AFR Records Processed!`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    }, 800);
+  };
+
+  const handleAfrFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    const extension = file.name.split('.').pop()?.toLowerCase();
+
+    if (extension === 'csv') {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        dynamicTyping: false,
+        complete: (results) => {
+          processAfrFile(results.data);
+        }
+      });
+    } else if (['xlsx', 'xls'].includes(extension || '')) {
+      reader.onload = (evt) => {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary', raw: false });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+        processAfrFile(data);
+      };
+      reader.readAsBinaryString(file);
+    }
+  };
+
+  const exportAfrResults = () => {
+    const filteredRecords = afrResults.filter(row => afrFilter === 'all' || row.status === afrFilter);
+    if (filteredRecords.length === 0) return;
+    
+    const exportData = filteredRecords.map(row => ({
+      'Tracking Number': row.tracking,
+      'Shipper Company': row.shipper,
+      'Duty Tax Payor Account': row.name,
+      'Payment Type': row.payment,
+      'Status': row.status,
+      'Service Type': row.service
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "AFR Results");
+    const dateStr = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `AFR_Checker_Results_${dateStr}.xlsx`);
   };
 
   const exportHSCodeResults = () => {
@@ -2798,6 +2956,23 @@ function AppContent() {
     });
   }, [bucketShopResults, searchQuery, subFilter]);
 
+  const filteredAfrRecords = useMemo(() => {
+    if (!Array.isArray(afrResults)) return [];
+    const query = (searchQuery || '').toLowerCase().trim();
+    
+    return afrResults.filter(row => {
+      if (!row || typeof row !== 'object') return false;
+      const matchesSearch = (
+        String(row.tracking || '').toLowerCase().includes(query) || 
+        String(row.shipper || '').toLowerCase().includes(query) ||
+        String(row.name || '').toLowerCase().includes(query)
+      );
+      
+      if (afrFilter === 'all') return matchesSearch;
+      return matchesSearch && row.status === afrFilter;
+    });
+  }, [afrResults, searchQuery, afrFilter]);
+
   const filteredDifferentLinesRecords = useMemo(() => {
     const query = searchQuery.toLowerCase();
     return differentLinesResults.filter(row => (
@@ -3251,6 +3426,7 @@ function AppContent() {
                     { label: 'NTN TOTAL RECORDS', value: ntnRecords.length.toLocaleString(), icon: FileText, cardClass: 'card-blue-3d', iconBg: 'bg-blue-3d' },
                     { label: 'HS CODE RESULTS', value: hsCodeResults.length.toLocaleString(), icon: BarChart3, cardClass: 'card-purple-3d', iconBg: 'bg-purple-3d' },
                     { label: 'NTN MISSING RESULTS', value: ntnMissingResults.length.toLocaleString(), icon: AlertTriangle, cardClass: 'card-orange-3d', iconBg: 'bg-orange-3d' },
+                    { label: 'AFR ALERTS', value: afrResults.filter(r => r.status === 'CTRL/AFR DETECTED').length.toLocaleString(), icon: Sliders, cardClass: 'card-purple-3d', iconBg: 'bg-purple-3d' },
                     { label: 'BUCKET SHOP RESULTS', value: bucketShopResults.length.toLocaleString(), icon: Store, cardClass: 'card-teal-3d', iconBg: 'bg-teal-3d' },
                   ].map((stat, i) => (
                     <div key={i} className={`stat-card-3d ${stat.cardClass} border-none`}>
@@ -4835,32 +5011,215 @@ function AppContent() {
                 </div>
               </div>
 
-              {subFilter === 'advance-update' && filteredNtnMissingRecords.some(r => r.value >= 500) && (
-                <div className="mt-8 bg-amber-50 border border-amber-200 rounded-[24px] p-6 flex items-center space-x-4 animate-in slide-in-from-top duration-500">
-                  <div className="w-12 h-12 bg-amber-500 rounded-xl flex items-center justify-center text-white shadow-lg">
-                    <AlertTriangle size={24} />
-                  </div>
-                  <div>
-                    <h4 className="text-amber-800 font-black text-lg">High Value Shipments Detected</h4>
-                    <p className="text-amber-700 text-sm font-medium">There are {filteredNtnMissingRecords.filter(r => r.value >= 500).length} shipments over $500 that have been auto-matched. Please review them at the top of the list.</p>
-                  </div>
+              {/* High Value Section for Advance Update (Matches Only) */}
+              {subFilter === 'advance-update' && ntnMissingResults.some(r => r.isAdvanceUpdate && r.value >= 500) && !isAdvanceUpdateApplied && (
+                <div className="mb-8">
+                  <button 
+                    onClick={() => setIsHighValueMissingExpanded(!isHighValueMissingExpanded)}
+                    className="w-full bg-blue-50 border border-blue-100 rounded-[32px] p-6 flex items-center justify-between group hover:bg-blue-100/50 transition-all"
+                  >
+                    <div className="flex items-center space-x-5">
+                      <div className="w-14 h-14 bg-blue-600 rounded-[20px] flex items-center justify-center text-white shadow-xl shadow-blue-600/20 group-hover:scale-105 transition-transform">
+                        <Zap size={30} />
+                      </div>
+                      <div className="text-left">
+                        <h4 className="text-blue-900 font-black text-xl tracking-tight uppercase">High Value Matches Found</h4>
+                        <p className="text-blue-700/70 font-bold text-sm">Actionable: {ntnMissingResults.filter(r => r.isAdvanceUpdate && r.value >= 500).length} high-value shipments matched in database</p>
+                      </div>
+                    </div>
+                    <div className={`w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-blue-600 shadow-sm transition-all ${isHighValueMissingExpanded ? 'rotate-180 bg-blue-600 text-white' : 'group-hover:shadow-md'}`}>
+                      <ChevronDown size={24} />
+                    </div>
+                  </button>
+                  
+                  {isHighValueMissingExpanded && (
+                    <div className="mt-4 overflow-hidden rounded-[32px] border-2 border-blue-100 bg-white shadow-xl animate-in slide-in-from-top duration-500">
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="text-left bg-blue-50/30">
+                              <th className="py-4 pl-6 text-[10px] font-black text-blue-800 uppercase tracking-widest">Select</th>
+                              <th className="py-4 text-[10px] font-black text-blue-800 uppercase tracking-widest">Tracking</th>
+                              <th className="py-4 text-[10px] font-black text-blue-800 uppercase tracking-widest">Shipper</th>
+                              <th className="py-4 text-[10px] font-black text-blue-800 uppercase tracking-widest">Found NTN</th>
+                              <th className="py-4 pr-6 text-[10px] font-black text-blue-800 uppercase tracking-widest text-right">Value</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-blue-50">
+                            {ntnMissingResults.filter(r => r.isAdvanceUpdate && r.value >= 500).map((row, i) => (
+                              <tr key={i} className="hover:bg-blue-50/50 transition-all">
+                                <td className="py-4 pl-6">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={selectedHighValueIds.has(row.id)}
+                                    onChange={() => toggleHighValueSelection(row.id)}
+                                    className="w-6 h-6 rounded-lg border-2 border-blue-300 text-blue-600 focus:ring-blue-500 cursor-pointer transition-all"
+                                  />
+                                </td>
+                                <td className="py-4">
+                                  <span className="text-xs font-mono font-bold text-blue-700 bg-blue-100 px-2 py-1 rounded-lg">{row.tracking}</span>
+                                </td>
+                                <td className="py-4">
+                                  <p className="text-sm font-bold text-gray-900">{row.shipper}</p>
+                                </td>
+                                <td className="py-4">
+                                  <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-1 rounded-lg">{row.foundNtn}</span>
+                                </td>
+                                <td className="py-4 pr-6 text-right">
+                                  <span className="text-sm font-black text-blue-600">${row.value.toLocaleString()}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {ntnMissingResults.length > 0 && (
                 <div className="mt-10">
+                  {/* High Value Section for Current Results (Strictly Pure Missing Only) */}
+                  {subFilter === 'current-missing' && ntnMissingResults.filter(r => r.isMissing && r.value >= 500).length > 0 && (
+                    <div className="mb-8">
+                      <button 
+                        onClick={() => setIsHighValueMissingExpanded(!isHighValueMissingExpanded)}
+                        className="w-full bg-red-50 border border-red-100 rounded-[32px] p-6 flex items-center justify-between group hover:bg-red-100/50 transition-all"
+                      >
+                        <div className="flex items-center space-x-5">
+                          <div className="w-14 h-14 bg-red-600 rounded-[20px] flex items-center justify-center text-white shadow-xl shadow-red-600/20 group-hover:scale-105 transition-transform">
+                            <AlertCircle size={30} />
+                          </div>
+                          <div className="text-left">
+                            <h4 className="text-red-900 font-black text-xl tracking-tight uppercase">High Value Missing NTN</h4>
+                            <p className="text-red-700/70 font-bold text-sm">Priority Review: {ntnMissingResults.filter(r => r.isMissing && r.value >= 500).length} shipments over $500 with NO data</p>
+                          </div>
+                        </div>
+                        <div className={`w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-red-600 shadow-sm transition-all ${isHighValueMissingExpanded ? 'rotate-180 bg-red-600 text-white' : 'group-hover:shadow-md'}`}>
+                          <ChevronDown size={24} />
+                        </div>
+                      </button>
+                      
+                      {isHighValueMissingExpanded && (
+                        <div className="mt-4 overflow-hidden rounded-[32px] border-2 border-red-100 bg-white shadow-xl animate-in slide-in-from-top duration-500">
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead>
+                                <tr className="text-left bg-red-50/30">
+                                  <th className="py-4 pl-6 text-[10px] font-black text-red-800 uppercase tracking-widest">Tracking Number</th>
+                                  <th className="py-4 text-[10px] font-black text-red-800 uppercase tracking-widest">Shipper Company</th>
+                                  <th className="py-4 text-[10px] font-black text-red-800 uppercase tracking-widest">Value</th>
+                                  <th className="py-4 pr-6 text-[10px] font-black text-red-800 uppercase tracking-widest text-right">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-red-50">
+                                {ntnMissingResults.filter(r => r.isMissing && r.value >= 500).map((row, i) => (
+                                  <tr key={i} className="hover:bg-red-50/50 transition-all">
+                                    <td className="py-4 pl-6">
+                                      <span className="text-xs font-mono font-bold text-red-700 bg-red-100 px-2 py-1 rounded-lg">{row.tracking}</span>
+                                    </td>
+                                    <td className="py-4">
+                                      <div className="flex items-center space-x-2">
+                                        <p className="text-sm font-bold text-gray-900">{row.shipper}</p>
+                                        <span className="text-[9px] font-black bg-red-500 text-white px-2 py-0.5 rounded-full tracking-tighter whitespace-nowrap uppercase">High Value</span>
+                                      </div>
+                                    </td>
+                                    <td className="py-4">
+                                      <span className="text-sm font-black text-red-600">${row.value.toLocaleString()}</span>
+                                    </td>
+                                    <td className="py-4 pr-6 text-right">
+                                      <span className="text-[9px] font-black px-3 py-1 rounded-full bg-red-600 text-white tracking-widest">PURE MISSING</span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* High Value Section for Verified Results (Proper NTN/CNIC only) */}
+                  {subFilter === 'high-value' && ntnMissingResults.filter(r => r.hasIdInRow && r.value >= 500).length > 0 && (
+                    <div className="mb-8">
+                      <button 
+                        onClick={() => setIsHighValueMissingExpanded(!isHighValueMissingExpanded)}
+                        className="w-full bg-emerald-50 border border-emerald-100 rounded-[32px] p-6 flex items-center justify-between group hover:bg-emerald-100/50 transition-all"
+                      >
+                        <div className="flex items-center space-x-5">
+                          <div className="w-14 h-14 bg-emerald-600 rounded-[20px] flex items-center justify-center text-white shadow-xl shadow-emerald-600/20 group-hover:scale-105 transition-transform">
+                            <CheckCircle2 size={30} />
+                          </div>
+                          <div className="text-left">
+                            <h4 className="text-emerald-900 font-black text-xl tracking-tight uppercase">High Value Verified (NTN/CNIC in File)</h4>
+                            <p className="text-emerald-700/70 font-bold text-sm">Hidden Review: {ntnMissingResults.filter(r => r.hasIdInRow && r.value >= 500).length} shipments with Proper IDs</p>
+                          </div>
+                        </div>
+                        <div className={`w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-emerald-600 shadow-sm transition-all ${isHighValueMissingExpanded ? 'rotate-180 bg-emerald-600 text-white' : 'group-hover:shadow-md'}`}>
+                          <ChevronDown size={24} />
+                        </div>
+                      </button>
+                      
+                      {isHighValueMissingExpanded && (
+                        <div className="mt-4 overflow-hidden rounded-[32px] border-2 border-emerald-100 bg-white shadow-xl animate-in slide-in-from-top duration-500">
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead>
+                                <tr className="text-left bg-emerald-50/30">
+                                  <th className="py-4 pl-6 text-[10px] font-black text-emerald-800 uppercase tracking-widest">Tracking Number</th>
+                                  <th className="py-4 text-[10px] font-black text-emerald-800 uppercase tracking-widest">Shipper Company</th>
+                                  <th className="py-4 text-[10px] font-black text-emerald-800 uppercase tracking-widest">Value</th>
+                                  <th className="py-4 pr-6 text-[10px] font-black text-emerald-800 uppercase tracking-widest text-right">NTN/CNIC Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-emerald-50">
+                                {ntnMissingResults.filter(r => r.hasIdInRow && r.value >= 500).map((row, i) => (
+                                  <tr key={i} className="hover:bg-emerald-50/50 transition-all">
+                                    <td className="py-4 pl-6">
+                                      <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-lg">{row.tracking}</span>
+                                    </td>
+                                    <td className="py-4">
+                                      <div className="flex items-center space-x-2">
+                                        <p className="text-sm font-bold text-gray-900">{row.shipper}</p>
+                                        <span className="text-[9px] font-black bg-red-500 text-white px-2 py-0.5 rounded-full tracking-tighter whitespace-nowrap uppercase">High Value</span>
+                                      </div>
+                                    </td>
+                                    <td className="py-4">
+                                      <span className="text-sm font-black text-emerald-600">${row.value.toLocaleString()}</span>
+                                    </td>
+                                    <td className="py-4 pr-6 text-right">
+                                      <div className="flex flex-col items-end">
+                                        <span className="text-[9px] font-black px-3 py-1 rounded-full bg-emerald-600 text-white tracking-widest uppercase mb-1">Verified ID</span>
+                                        {row.detectedId && <span className="text-[10px] font-mono font-bold text-emerald-600">{row.detectedId}</span>}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center space-x-4">
-                      <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest">Verification Results</h3>
+                      <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest">
+                        {subFilter === 'current-missing' ? 'Regular Missing Shipments (<$500)' : 
+                         subFilter === 'high-value' ? 'All High Value Verification' : 'Verification Results'}
+                      </h3>
                       <div className="bg-blue-500 text-white px-3 py-1 rounded-full text-[10px] font-black flex items-center space-x-1 shadow-lg shadow-blue-500/20">
                         <Activity size={12} />
-                        <span>{ntnMissingResults.length} SHIPMENTS ANALYZED</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 rounded-full bg-orange-500" />
-                        <span className="text-[10px] font-bold text-gray-500 uppercase">Filtered Records</span>
+                        <span>
+                          {subFilter === 'current-missing' 
+                            ? ntnMissingResults.filter(r => r.isMissing && r.value < 500).length 
+                            : subFilter === 'high-value' 
+                            ? ntnMissingResults.filter(r => r.value >= 500).length
+                            : filteredNtnMissingRecords.length} SHIPMENTS
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -4872,12 +5231,22 @@ function AppContent() {
                           <th className="py-4 pl-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Tracking Number</th>
                           <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Shipper Company</th>
                           <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Shipper Name</th>
+                          {subFilter === 'advance-update' && (
+                            <th className="py-4 text-[10px] font-black text-blue-500 uppercase tracking-widest">Matched NTN</th>
+                          )}
                           <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Customs Value</th>
                           <th className="py-4 pr-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Service Type</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
-                        {filteredNtnMissingRecords.map((row, i) => (
+                        {ntnMissingResults.filter(r => {
+                          if (subFilter === 'current-missing') return r.isMissing && r.value < 500;
+                          if (subFilter === 'advance-update') {
+                            return r.isAdvanceUpdate && (r.value < 500 || (isAdvanceUpdateApplied && selectedHighValueIds.has(r.id)));
+                          }
+                          if (subFilter === 'high-value') return r.hasInvalidSuffix && r.value >= 500;
+                          return true;
+                        }).map((row, i) => (
                           <tr key={i} className="hover:bg-gray-50/30 transition-all">
                             <td className="py-4 pl-6">
                               <div className="flex items-center space-x-3">
@@ -4903,6 +5272,13 @@ function AppContent() {
                             <td className="py-4">
                               <p className="text-sm font-bold text-gray-700">{row.name}</p>
                             </td>
+                            {subFilter === 'advance-update' && (
+                              <td className="py-4">
+                                <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${row.isUpdateApplied ? 'bg-emerald-600' : 'bg-blue-600'} text-white`}>
+                                  {row.foundNtn}
+                                </span>
+                              </td>
+                            )}
                             <td className="py-4">
                               <span className="text-xs font-bold text-gray-900">${row.value}</span>
                             </td>
@@ -5568,6 +5944,141 @@ function AppContent() {
           </div>
         )}
 
+        {activeTab === 'CTRL/AFR Checker' && (
+          <div className="space-y-8">
+            <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 relative overflow-hidden">
+              {isProcessing && (
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
+                  <div className="w-20 h-20 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-6"></div>
+                  <h3 className="text-2xl font-black text-gray-800 tracking-tight">Checking AFR Status...</h3>
+                  <p className="text-gray-500 font-medium mt-2">Analyzing payment types and shipper suffixes</p>
+                </div>
+              )}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h2 className="text-3xl font-black text-gray-800 tracking-tight">CTRL/AFR Checker Tool</h2>
+                  <p className="text-gray-400 font-medium mt-1">Validate bill-sender shipments with -A suffix and monitor recipient/third-party billing</p>
+                </div>
+                <div className="flex items-center space-x-3">
+                  {afrResults.length > 0 && (
+                    <div className="flex items-center space-x-3">
+                      <button 
+                        onClick={() => setAfrResults([])}
+                        className="px-6 py-3 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-all flex items-center space-x-2"
+                      >
+                        <Trash2 size={18} />
+                        <span>Clear</span>
+                      </button>
+                      <button 
+                        onClick={exportAfrResults}
+                        className="px-6 py-3 bg-emerald-600 text-white rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all flex items-center space-x-2"
+                      >
+                        <Download size={18} />
+                        <span>Export Results</span>
+                      </button>
+                    </div>
+                  )}
+                  <button 
+                    onClick={() => document.getElementById('afr-checker-upload')?.click()}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center space-x-2"
+                  >
+                    <Upload size={18} />
+                    <span>Upload Excel/CSV</span>
+                  </button>
+                  <input 
+                    id="afr-checker-upload"
+                    type="file"
+                    accept=".csv, .xlsx, .xls"
+                    className="hidden"
+                    onChange={handleAfrFileUpload}
+                  />
+                </div>
+              </div>
+
+              {afrResults.length > 0 && (
+                <div className="mt-10">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+                    {[
+                      { id: 'all', label: 'TOTAL DETECTED', value: afrResults.length.toLocaleString(), icon: Search, color: 'blue', bg: 'bg-blue-50/50', iconBg: 'bg-blue-500' },
+                      { id: 'CTRL/AFR DETECTED', label: 'AFR ALERTS', value: afrResults.filter(r => r.status === 'CTRL/AFR DETECTED').length.toLocaleString(), icon: AlertCircle, color: 'amber', bg: 'bg-amber-50/50', iconBg: 'bg-amber-500' },
+                      { id: 'RECIPIENT BILL', label: 'RECIPIENT BILL', value: afrResults.filter(r => r.status === 'RECIPIENT BILL').length.toLocaleString(), icon: CheckCircle2, color: 'emerald', bg: 'bg-emerald-50/50', iconBg: 'bg-emerald-500' },
+                      { id: 'THIRD PARTY BILL', label: 'THIRD PARTY BILL', value: afrResults.filter(r => r.status === 'THIRD PARTY BILL').length.toLocaleString(), icon: Layers, color: 'indigo', bg: 'bg-indigo-50/50', iconBg: 'bg-indigo-500' },
+                    ].map((stat, i) => (
+                      <div 
+                        key={i} 
+                        onClick={() => setAfrFilter(stat.id)}
+                        className={`p-6 rounded-[32px] flex flex-col items-center text-center transition-all cursor-pointer border-2 ${afrFilter === stat.id ? `border-${stat.color}-500 shadow-xl scale-[1.05] ${stat.bg}` : 'border-gray-100 bg-white hover:shadow-lg shadow-sm'} group`}
+                      >
+                        <div className={`w-12 h-12 ${stat.iconBg} rounded-2xl flex items-center justify-center text-white shadow-lg shadow-current/20 mb-4 group-hover:scale-110 transition-transform`}>
+                          <stat.icon size={24} />
+                        </div>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                        <p className={`text-2xl font-black text-gray-800 tracking-tight`}>{stat.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="overflow-x-auto rounded-3xl border border-gray-100">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-left bg-gray-50/50">
+                          <th className="py-4 pl-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Tracking Number</th>
+                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Shipper Company</th>
+                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Duty Tax Payor Account</th>
+                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment</th>
+                          <th className="py-4 pr-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {filteredAfrRecords.map((row, i) => (
+                          <tr key={i} className="hover:bg-gray-50/30 transition-all">
+                            <td className="py-4 pl-6">
+                              <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">{row.tracking}</span>
+                            </td>
+                            <td className="py-4">
+                              <p className="text-sm font-bold text-gray-800">{row.shipper}</p>
+                            </td>
+                            <td className="py-4">
+                              <p className="text-sm font-bold text-gray-700">{row.name}</p>
+                            </td>
+                            <td className="py-4">
+                              <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">Type {row.payment}</span>
+                            </td>
+                            <td className="py-4 pr-6 text-right">
+                              <div className="flex flex-col items-end">
+                                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg ${
+                                  row.color === 'amber' ? 'text-amber-600 bg-amber-50' : 
+                                  row.color === 'emerald' ? 'text-emerald-600 bg-emerald-50' : 
+                                  'text-gray-400 bg-gray-50'
+                                }`}>
+                                  {row.status}
+                                </span>
+                                {row.showAlert && (
+                                  <span className="text-[8px] font-bold text-amber-500 mt-1 uppercase">bill sender shipment showing CTRL/AFR</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {afrResults.length === 0 && (
+                <div className="mt-10 py-20 border-2 border-dashed border-gray-100 rounded-[32px] flex flex-col items-center justify-center text-center">
+                  <div className="w-20 h-20 bg-gray-50 rounded-[24px] flex items-center justify-center text-gray-300 mb-6">
+                    <Sliders size={40} />
+                  </div>
+                  <h3 className="text-xl font-black text-gray-800 tracking-tight">No Data Uploaded</h3>
+                  <p className="text-gray-400 font-medium mt-2 max-w-xs">Upload an Excel or CSV file to start AFR monitoring</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'B2C Sheets' && (
           <div className="space-y-6">
             <div className="bg-white rounded-[40px] p-8 shadow-sm border border-gray-100">
@@ -5738,7 +6249,7 @@ function AppContent() {
         )}
 
         {/* Placeholder for other tabs */}
-        {!['Dashboard', 'NTN Search', 'Profile', 'HS Code', 'NTN Missing', 'NTN Auto Update', 'Bucket Shop', 'Different Lines', 'MDI Checker', 'B2C Sheets'].includes(activeTab) && (
+        {!['Dashboard', 'NTN Search', 'Profile', 'HS Code', 'NTN Missing', 'NTN Auto Update', 'Bucket Shop', 'Different Lines', 'MDI Checker', 'CTRL/AFR Checker', 'B2C Sheets'].includes(activeTab) && (
               <div className="flex flex-col items-center justify-center h-full py-20">
                 <div className="w-24 h-24 bg-gray-100 rounded-[32px] flex items-center justify-center text-gray-300 mb-6">
                   <Database size={48} />
@@ -5754,8 +6265,9 @@ function AppContent() {
               </div>
             )}
           </div>
+        </div>
 
-          {/* Edit Modal */}
+        {/* Edit Modal */}
           <EditRecordModal isOpen={isEditModalOpen} initialRecord={editingRecord} onClose={() => setIsEditModalOpen(false)} onSave={saveEdit} handleCopy={handleCopy} copiedId={copiedId} />
           
           {/* Add New Record Modal */}
@@ -6219,7 +6731,6 @@ function AppContent() {
               </div>
             )}
           </AnimatePresence>
-        </div>
       </main>
 
       {/* MDI Database Modal */}
