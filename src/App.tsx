@@ -5309,7 +5309,7 @@ function AppContent() {
               {ntnMissingResults.length > 0 && (
                 <div className="mt-10">
                   {/* High Value Section for Current Results (Strictly Pure Missing Only) */}
-                  {subFilter === 'current-missing' && ntnMissingResults.filter(r => r.isMissing && r.value >= 500).length > 0 && (
+                  {subFilter === 'current-ntn' && ntnMissingResults.filter(r => r.isMissing && r.value >= 500).length > 0 && (
                     <div className="mb-8">
                       <button 
                         onClick={() => setIsHighValueMissingExpanded(!isHighValueMissingExpanded)}
@@ -5436,13 +5436,13 @@ function AppContent() {
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center space-x-4">
                       <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest">
-                        {subFilter === 'current-missing' ? 'Regular Missing Shipments (<$500)' : 
+                        {subFilter === 'current-ntn' ? 'Regular Missing Shipments (<$500)' : 
                          subFilter === 'high-value' ? 'All High Value Verification' : 'Verification Results'}
                       </h3>
                       <div className="bg-blue-500 text-white px-3 py-1 rounded-full text-[10px] font-black flex items-center space-x-1 shadow-lg shadow-blue-500/20">
                         <Activity size={12} />
                         <span>
-                          {subFilter === 'current-missing' 
+                          {subFilter === 'current-ntn' 
                             ? ntnMissingResults.filter(r => r.isMissing && r.value < 500).length 
                             : subFilter === 'high-value' 
                             ? ntnMissingResults.filter(r => r.value >= 500).length
@@ -5468,7 +5468,7 @@ function AppContent() {
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {ntnMissingResults.filter(r => {
-                          if (subFilter === 'current-missing') return r.isMissing && r.value < 500;
+                          if (subFilter === 'current-ntn') return r.isMissing && r.value < 500;
                           if (subFilter === 'advance-update') {
                             return r.isAdvanceUpdate && (r.value < 500 || (isAdvanceUpdateApplied && selectedHighValueIds.has(r.id)));
                           }
