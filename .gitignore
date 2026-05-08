@@ -8,3 +8,4 @@ coverage/
 !.env.example
 *.xlsx
 *.csv
+*.xlsm

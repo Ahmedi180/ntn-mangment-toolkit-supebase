@@ -1326,15 +1326,35 @@ function AppContent() {
 
       const processedData = data.map((row, index) => {
         // ... (existing logic)
-        const rawCompany = String(row['Shipper Company'] || row['shipper'] || row['COMPANY'] || '').trim();
-        const name = String(row['Shipper Name'] || row['name'] || row['NAME'] || '').trim();
-        const taxId = String(row['Shpr Tax ID Number'] || row['tax_id'] || row['NTN'] || row['TAX ID'] || '').trim();
-        const desc = String(row['CE Commodity Description'] || row['Description'] || row['DESC'] || '').trim();
-        
-        if (!desc) return null;
+        const getVal = (keywords: string[]) => {
+          const normalizedKeywords = keywords.map(kw => kw.toLowerCase().replace(/[^a-z0-9]/g, ''));
+          const keys = Object.keys(row);
+          
+          // Prioritize exact normalized matches, then longest matches
+          let bestKey = '';
+          let maxLen = -1;
+          
+          for (const k of keys) {
+            const normalizedK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (normalizedKeywords.includes(normalizedK)) {
+              if (k.length > maxLen) {
+                maxLen = k.length;
+                bestKey = k;
+              }
+            }
+          }
+          return bestKey ? String(row[bestKey]).trim() : '';
+        };
 
-        const customsValueRaw = row['Customs Value'] || row['value'] || row['Value'] || row['Amount'] || row['Declared Value'] || 0;
+        const rawCompany = getVal(['Shipper Company', 'Shipper Company Name', 'shipper', 'company', 'shippercompany', 'shippercompanyname', 'companyname', 'shipper_company_name']);
+        const name = getVal(['Shipper Name', 'name', 'shippername', 'shprname', 'shpr_name', 'shipper_name']);
+        const taxId = getVal(['Shpr Tax ID Number', 'tax_id', 'ntn', 'taxid', 'shprtaxid', 'tax_id_number', 'tax_id_no', 'tax_id_num']);
+        const desc = getVal(['CE Commodity Description', 'description', 'desc', 'commoditydescription', 'commodity_description', 'commodity_desc', 'ce_commodity_description']);
+        const customsValueRaw = getVal(['Customs Value', 'Value', 'Amount', 'Declared Value', 'customsvalue', 'totalvalue', 'total_value', 'customs_value']);
         const customsValue = parseFloat(customsValueRaw.toString().replace(/[^0-9.]/g, '')) || 0;
+        
+        // Strict filter: Delete if description is blank
+        if (!desc) return null;
 
         const hasIdInRow = NTN_REGEX.test(rawCompany) || cnicPattern.test(rawCompany) || numericIdPattern.test(rawCompany) ||
                          NTN_REGEX.test(name) || cnicPattern.test(name) || numericIdPattern.test(name) ||
@@ -1348,12 +1368,57 @@ function AppContent() {
         const detectedId = detectId(rawCompany) || detectId(name) || detectId(taxId);
 
         const cleanedCompany = rawCompany.replace(NTN_REGEX, '').replace(cnicPattern, '').replace(numericIdPattern, '').trim();
+        const cleanedName = name.replace(NTN_REGEX, '').replace(cnicPattern, '').replace(numericIdPattern, '').trim();
         
-        const cleanName = (str: string) => str.toLowerCase().replace(/\b(m\/s|pvt|ltd|limited|company|co|industries|industry|leathers|global|international)\b/g, '').replace(/[^a-z0-9]/g, '').trim();
+        const cleanName = (str: string) => str.toLowerCase()
+          .replace(/\b(m\/s|pvt|ltd|limited|company|co|industries|industry|leathers|global|international|mr|mrs|ms|miss|dr|sh|syed|mian)\b/g, '')
+          .replace(/[^a-z0-9]/g, ' ')
+          .trim();
+          
+        const getWords = (str: string) => str.split(/\s+/).filter(w => w.length >= 2);
         const normalizedCompany = cleanName(cleanedCompany);
-        const dbMatch = ntnRecords.find(record => {
-          const normalizedDBName = cleanName(record.name);
-          return normalizedCompany === normalizedDBName && normalizedCompany.length > 3;
+        const normalizedShipperName = cleanName(cleanedName);
+        const wordsCompany = getWords(normalizedCompany);
+        const wordsName = getWords(normalizedShipperName);
+
+        // Best match scoring system
+        let dbMatch = null;
+        let highestScore = 0;
+
+        ntnRecords.forEach(record => {
+          const dbCleaned = cleanName(record.name);
+          const dbNormalized = dbCleaned.replace(/\s+/g, '');
+          const wordsDB = getWords(dbCleaned);
+          
+          const calculateScore = (inputWords: string[], inputRaw: string) => {
+            if (!inputRaw || inputRaw.length <= 3) return 0;
+            const inputNormalized = inputRaw.replace(/\s+/g, '');
+            
+            // 1. Exact match (Score 100)
+            if (inputNormalized === dbNormalized) return 100;
+            
+            // 2. Substring match (Score 85)
+            if (inputNormalized.length > 5 && dbNormalized.length > 5) {
+              if (inputNormalized.includes(dbNormalized) || dbNormalized.includes(inputNormalized)) return 85;
+            }
+
+            // 3. Word match (Score based on percentage)
+            if (inputWords.length > 0 && wordsDB.length > 0) {
+              const matches = inputWords.filter(w => wordsDB.includes(w));
+              const matchRatio = matches.length / Math.max(inputWords.length, wordsDB.length);
+              // Require at least 2 words or 1 very significant word
+              if (matches.length >= 2 || (matches.length === 1 && matches[0].length >= 5)) {
+                return 70 * matchRatio;
+              }
+            }
+            return 0;
+          };
+          
+          const score = Math.max(calculateScore(wordsCompany, normalizedCompany), calculateScore(wordsName, normalizedShipperName));
+          if (score > highestScore && score >= 40) { // Lowered threshold slightly for better detection
+            highestScore = score;
+            dbMatch = record;
+          }
         });
 
         const foundInDb = !!dbMatch;
@@ -1365,7 +1430,7 @@ function AppContent() {
         
         // Missing means NO Proper ID and NO Suffix
         const isMissing = !hasProperId && !hasInvalidSuffix;
-        const isAdvanceUpdate = !hasIdInRow && foundInDb;
+        const isAdvanceUpdate = !hasIdInRow && foundInDb && !hasInvalidSuffix;
 
         return {
           id: index.toString(),
@@ -1381,6 +1446,7 @@ function AppContent() {
           detectedId,
           hasInvalidSuffix,
           foundInDb,
+          dbId: dbMatch?.id,
           foundNtn,
           originalCompany: cleanedCompany,
           color: foundInDb ? 'emerald' : (isMissing ? 'orange' : 'gray')
@@ -1388,7 +1454,7 @@ function AppContent() {
       }).filter(row => row !== null);
 
       setNtnMissingResults(processedData as any[]);
-      setRecentNtnMissingActivity(processedData.filter(r => r.isMissing).slice(0, 5));
+      setRecentNtnMissingActivity(processedData.filter(r => r.isMissing && r.value < 500).slice(0, 5));
       setSubFilter('current-missing');
       setIsProcessing(false);
       setSuccessMessage(`${processedData.length} Shipments Analyzed Successfully!`);
@@ -1396,36 +1462,56 @@ function AppContent() {
     }, 800);
   };
 
-  const applyAdvanceNtnUpdate = () => {
+  const applyAdvanceNtnUpdate = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
-      const updatedData = ntnMissingResults.map(row => {
-        if (row.isAdvanceUpdate) {
-          const isHighValue = row.value >= 500;
-          const isSelected = selectedHighValueIds.has(row.id);
-          
-          if (!isHighValue || (isHighValue && isSelected)) {
-              return {
-                ...row,
-                shipper: `${row.shipper} ${row.foundNtn}`,
-                name: `${row.name} ${row.foundNtn}`,
-                isMissing: false,
-                isUpdateApplied: true,
-                hasIdInRow: true,
-                detectedId: row.foundNtn,
-                color: 'emerald'
-              };
+    
+    // Update database records for matched items
+    const updatePromises = ntnMissingResults
+      .filter(row => row.isAdvanceUpdate && row.dbId && row.name)
+      .map(async (row) => {
+        const isHighValue = row.value >= 500;
+        const isSelected = selectedHighValueIds.has(row.id);
+        
+        if (!isHighValue || (isHighValue && isSelected)) {
+          try {
+            await supabase
+              .from('ntn_records')
+              .update({ name: row.name })
+              .eq('id', row.dbId);
+          } catch (err) {
+            console.error('Error updating database record:', err);
           }
         }
-        return row;
       });
 
-      setNtnMissingResults(updatedData as any[]);
-      setIsAdvanceUpdateApplied(true);
-      setIsProcessing(false);
-      setSuccessMessage("NTN Updates Applied Successfully!");
-      setTimeout(() => setSuccessMessage(''), 3000);
-    }, 1000);
+    await Promise.all(updatePromises);
+
+    const updatedData = ntnMissingResults.map(row => {
+      if (row.isAdvanceUpdate) {
+        const isHighValue = row.value >= 500;
+        const isSelected = selectedHighValueIds.has(row.id);
+        
+        if (!isHighValue || (isHighValue && isSelected)) {
+            return {
+              ...row,
+              shipper: `${row.shipper} ${row.foundNtn}`,
+              name: `${row.name} ${row.foundNtn}`,
+              isMissing: false,
+              isUpdateApplied: true,
+              hasIdInRow: true,
+              detectedId: row.foundNtn,
+              color: 'emerald'
+            };
+        }
+      }
+      return row;
+    });
+
+    setNtnMissingResults(updatedData as any[]);
+    setIsAdvanceUpdateApplied(true);
+    setIsProcessing(false);
+    setSuccessMessage("NTN Updates Applied and Database Updated!");
+    setTimeout(() => setSuccessMessage(''), 3000);
   };
 
   const toggleHighValueSelection = (id: string) => {
@@ -1442,25 +1528,85 @@ function AppContent() {
 
     setTimeout(() => {
       const results = data.map((row, index) => {
-        const tracking = (row['Tracking Number'] || row['tracking'] || '').toString().trim();
-        const shipperCompany = (row['Shipper Company'] || row['shipper'] || row['COMPANY'] || '').toString().trim();
-        const shipperName = (row['Shipper Name'] || row['name'] || row['NAME'] || '').toString().trim();
-        const customsValueRaw = row['Customs Value'] || row['value'] || row['Value'] || row['Amount'] || row['Declared Value'] || 0;
+        const getVal = (keywords: string[]) => {
+          const normalizedKeywords = keywords.map(kw => kw.toLowerCase().replace(/[^a-z0-9]/g, ''));
+          const keys = Object.keys(row);
+          let bestKey = '';
+          let maxLen = -1;
+          for (const k of keys) {
+            const normalizedK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (normalizedKeywords.includes(normalizedK)) {
+              if (k.length > maxLen) {
+                maxLen = k.length;
+                bestKey = k;
+              }
+            }
+          }
+          return bestKey ? String(row[bestKey]).trim() : '';
+        };
+
+        const tracking = getVal(['Tracking Number', 'tracking', 'trackingnumber', 'awb', 'hwb']).toString().trim();
+        const shipperCompany = getVal(['Shipper Company', 'Shipper Company Name', 'shipper', 'company', 'shippercompany', 'shippercompanyname', 'companyname']).toString().trim();
+        const shipperName = getVal(['Shipper Name', 'name', 'shippername', 'shprname', 'shpr_name']).toString().trim();
+        const customsValueRaw = getVal(['Customs Value', 'Value', 'Amount', 'Declared Value', 'customsvalue', 'totalvalue', 'total_value']);
         const customsValue = parseFloat(customsValueRaw.toString().replace(/[^0-9.]/g, '')) || 0;
-        const service = (row['Service Type'] || row['service'] || 'N/A').toString().trim();
+        const service = getVal(['Service Type', 'service', 'servicetype', 'service_type']).toString().trim();
 
         // Remove existing NTN/CNIC from company name
         const cnicPattern = /\b\d{5}-\d{7}-\d\b|\b\d{13}\b|\b\d{11}\b/;
         const numericIdPattern = /\b\d{7,13}\b/;
         const cleanedCompany = shipperCompany.replace(NTN_REGEX, '').replace(cnicPattern, '').replace(numericIdPattern, '').trim();
+        const cleanedName = shipperName.replace(NTN_REGEX, '').replace(cnicPattern, '').replace(numericIdPattern, '').trim();
 
-        // Fuzzy match logic
-        const normalize = (str: string) => str.toLowerCase().replace(/\b(m\/s|pvt|ltd|limited|company|co|industries|industry|leathers|global|international)\b/g, '').replace(/[^a-z0-9]/g, '');
-        const normalizedInput = normalize(cleanedCompany);
+        const normalize = (str: string) => str.toLowerCase()
+          .replace(/\b(m\/s|pvt|ltd|limited|company|co|industries|industry|leathers|global|international|mr|mrs|ms|miss|dr|sh|syed|mian)\b/g, '')
+          .replace(/[^a-z0-9]/g, ' ')
+          .trim();
+          
+        const getWords = (str: string) => str.split(/\s+/).filter(w => w.length >= 2);
+        const normalizedCompany = normalize(cleanedCompany);
+        const normalizedShipperName = normalize(cleanedName);
+        const wordsCompany = getWords(normalizedCompany);
+        const wordsName = getWords(normalizedShipperName);
         
-        const match = ntnRecords.find(record => {
-          const normalizedDBName = normalize(record.name);
-          return normalizedInput === normalizedDBName && normalizedInput.length > 3;
+        // Best match scoring system
+        let match = null;
+        let highestScore = 0;
+
+        ntnRecords.forEach(record => {
+          const dbCleaned = normalize(record.name);
+          const dbNormalized = dbCleaned.replace(/\s+/g, '');
+          const wordsDB = getWords(dbCleaned);
+          
+          const calculateScore = (inputWords: string[], inputRaw: string) => {
+            if (!inputRaw || inputRaw.length <= 3) return 0;
+            const inputNormalized = inputRaw.replace(/\s+/g, '');
+            
+            // 1. Exact match (Score 100)
+            if (inputNormalized === dbNormalized) return 100;
+            
+            // 2. Substring match (Score 85)
+            if (inputNormalized.length > 5 && dbNormalized.length > 5) {
+              if (inputNormalized.includes(dbNormalized) || dbNormalized.includes(inputNormalized)) return 85;
+            }
+
+            // 3. Word match (Score based on percentage)
+            if (inputWords.length > 0 && wordsDB.length > 0) {
+              const matches = inputWords.filter(w => wordsDB.includes(w));
+              const matchRatio = matches.length / Math.max(inputWords.length, wordsDB.length);
+              // Require at least 2 words or 1 very significant word
+              if (matches.length >= 2 || (matches.length === 1 && matches[0].length >= 5)) {
+                return 70 * matchRatio;
+              }
+            }
+            return 0;
+          };
+          
+          const score = Math.max(calculateScore(wordsCompany, normalizedCompany), calculateScore(wordsName, normalizedShipperName));
+          if (score > highestScore && score >= 40) { // Lowered threshold slightly
+            highestScore = score;
+            match = record;
+          }
         });
 
         const foundInDb = !!match;
@@ -1474,6 +1620,7 @@ function AppContent() {
           originalCompany: cleanedCompany,
           name: shipperName,
           foundInDb,
+          dbId: match?.id,
           foundNtn,
           value: customsValue,
           service,
@@ -1490,31 +1637,51 @@ function AppContent() {
     }, 800);
   };
 
-  const applyNtnAutoUpdate = () => {
+  const applyNtnAutoUpdate = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
-      const updatedData = ntnAutoUpdateResults.map(row => {
-        if (row.foundInDb) {
-          const isHighValue = row.value >= 500;
-          const isSelected = selectedHighValueIds.has(row.id);
-          
-          if (!isHighValue || (isHighValue && isSelected)) {
-            return {
-              ...row,
-              shipper: `${row.originalCompany} ${row.foundNtn}`,
-              status: 'UPDATED'
-            };
+    
+    // Update database records for matched items
+    const updatePromises = ntnAutoUpdateResults
+      .filter(row => row.foundInDb && row.dbId && row.name)
+      .map(async (row) => {
+        const isHighValue = row.value >= 500;
+        const isSelected = selectedHighValueIds.has(row.id);
+        
+        if (!isHighValue || (isHighValue && isSelected)) {
+          try {
+            await supabase
+              .from('ntn_records')
+              .update({ name: row.name })
+              .eq('id', row.dbId);
+          } catch (err) {
+            console.error('Error updating database record:', err);
           }
         }
-        return row;
       });
 
-      setNtnAutoUpdateResults(updatedData as any[]);
-      setIsAdvanceUpdateApplied(true);
-      setIsProcessing(false);
-      setSuccessMessage("NTN Updates Applied Successfully!");
-      setTimeout(() => setSuccessMessage(''), 3000);
-    }, 1000);
+    await Promise.all(updatePromises);
+
+    const updatedData = ntnAutoUpdateResults.map(row => {
+      if (row.foundInDb) {
+        const isHighValue = row.value >= 500;
+        const isSelected = selectedHighValueIds.has(row.id);
+        
+        if (!isHighValue || (isHighValue && isSelected)) {
+          return {
+            ...row,
+            shipper: `${row.originalCompany} ${row.foundNtn}`,
+            status: 'UPDATED'
+          };
+        }
+      }
+      return row;
+    });
+
+    setNtnAutoUpdateResults(updatedData as any[]);
+    setIsAdvanceUpdateApplied(true);
+    setIsProcessing(false);
+    setSuccessMessage("NTN Updates Applied and Database Updated!");
+    setTimeout(() => setSuccessMessage(''), 3000);
   };
 
   const processBucketShopFile = (data: any[]) => {
@@ -4911,8 +5078,8 @@ function AppContent() {
             {/* NTN Missing Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
-                { id: 'advance-update', label: 'ADVANCE NTN UPDATE', value: ntnMissingResults.filter(r => r.isAdvanceUpdate).length.toLocaleString(), icon: Zap, color: 'emerald', bg: 'bg-emerald-50/50', iconBg: 'bg-emerald-500' },
-                { id: 'current-missing', label: 'CURRENT RESULTS', value: ntnMissingResults.filter(r => r.isMissing).length.toLocaleString(), icon: Search, color: 'orange', bg: 'bg-orange-50/50', iconBg: 'bg-orange-500' },
+                { id: 'advance-update', label: 'ADVANCE NTN UPDATE', value: ntnMissingResults.filter(r => r.isAdvanceUpdate && r.value < 500).length.toLocaleString(), icon: Zap, color: 'emerald', bg: 'bg-emerald-50/50', iconBg: 'bg-emerald-500' },
+                { id: 'current-missing', label: 'CURRENT RESULTS', value: ntnMissingResults.filter(r => r.isMissing && r.value < 500).length.toLocaleString(), icon: Search, color: 'orange', bg: 'bg-orange-50/50', iconBg: 'bg-orange-500' },
                 { id: 'high-value', label: 'HIGH VALUE SHIPMENTS', value: ntnMissingResults.filter(r => r.value >= 500).length.toLocaleString(), icon: AlertCircle, color: 'blue', bg: 'bg-blue-50/50', iconBg: 'bg-blue-500' },
               ].map((stat, i) => (
                 <div 
