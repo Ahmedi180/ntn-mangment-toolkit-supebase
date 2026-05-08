@@ -1355,8 +1355,8 @@ function AppContent() {
         const customsValueRaw = getVal(['Customs Value', 'Value', 'Amount', 'Declared Value', 'customsvalue', 'totalvalue', 'total_value', 'customs_value']);
         const customsValue = parseFloat(customsValueRaw.toString().replace(/[^0-9.]/g, '')) || 0;
         
-        // No longer deleting rows with blank descriptions to ensure companies like BARZLA show up
-        // if (!desc) return null;
+        // Strict filter: Delete if description is blank (User requested this to be the priority)
+        if (!desc || desc.trim() === '') return null;
 
         const hasIdInRow = NTN_REGEX.test(rawCompany) || cnicPattern.test(rawCompany) || numericIdPattern.test(rawCompany) ||
                          NTN_REGEX.test(name) || cnicPattern.test(name) || numericIdPattern.test(name) ||
