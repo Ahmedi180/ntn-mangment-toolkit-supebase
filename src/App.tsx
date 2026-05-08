@@ -1251,11 +1251,12 @@ function AppContent() {
   const processHSCodeFile = (data: any[]) => {
     setIsProcessing(true);
     setTimeout(() => {
-      // Filter out rows where CE Commodity Description is blank AND Recip Cntry is US
+      // Keep all rows, even if commodity is blank, as long as they have a tracking number
       const filteredData = data.filter(row => {
-        const desc = row['CE Commodity Description'] || row['Description'] || '';
+        const trackingNum = String(row['Tracking Number'] || row['tracking'] || '').trim();
         const country = row['Recip Cntry'] || row['Country'] || '';
-        return desc.toString().trim() !== '' && country.toString().trim().toUpperCase() === 'US';
+        if (!trackingNum || trackingNum === 'N/A') return false;
+        return country.toString().trim().toUpperCase() === 'US';
       });
 
       const results = filteredData.map((row, index) => {
@@ -1322,7 +1323,8 @@ function AppContent() {
     setTimeout(() => {
       const cnicPattern = /\b\d{5}-\d{7}-\d\b|\b\d{13}\b|\b\d{11}\b/;
       const numericIdPattern = /\b\d{7,13}\b/;
-      const invalidSuffixes = [/-e\s*form$/i, /-a$/i, /-c$/i];
+      // Invalid suffix patterns: -A, -C, -B, -E FORM, -EFORM, -E-FORM at end of company name
+      const invalidSuffixes = [/-e[-\s]*form$/i, /-[abc]$/i];
 
       const processedData = data.map((row, index) => {
         // ... (existing logic)
@@ -1353,8 +1355,8 @@ function AppContent() {
         const customsValueRaw = getVal(['Customs Value', 'Value', 'Amount', 'Declared Value', 'customsvalue', 'totalvalue', 'total_value', 'customs_value']);
         const customsValue = parseFloat(customsValueRaw.toString().replace(/[^0-9.]/g, '')) || 0;
         
-        // Strict filter: Delete if description is blank
-        if (!desc) return null;
+        // No longer deleting rows with blank descriptions to ensure companies like BARZLA show up
+        // if (!desc) return null;
 
         const hasIdInRow = NTN_REGEX.test(rawCompany) || cnicPattern.test(rawCompany) || numericIdPattern.test(rawCompany) ||
                          NTN_REGEX.test(name) || cnicPattern.test(name) || numericIdPattern.test(name) ||
@@ -1381,8 +1383,36 @@ function AppContent() {
         const wordsCompany = getWords(normalizedCompany);
         const wordsName = getWords(normalizedShipperName);
 
-        // Best match scoring system
-        let dbMatch = null;
+        // --- CNIC / NTN direct match against database ---
+        // If the Excel row's Tax ID matches a record's cnic or ntn, it's a guaranteed match.
+        let dbMatchByCnic: any = null;
+        const cleanTaxId = taxId.replace(/[^0-9]/g, '');
+        if (cleanTaxId.length >= 7) {
+          dbMatchByCnic = ntnRecords.find(record => {
+            const dbCnic = (record.cnic || '').replace(/[^0-9]/g, '');
+            const dbNtn  = (record.ntn  || '').replace(/[^0-9]/g, '');
+            return (dbCnic && dbCnic === cleanTaxId) || (dbNtn && dbNtn === cleanTaxId);
+          }) || null;
+        }
+
+        // Also try matching rawCompany / name CNIC-style digits against db cnic/ntn
+        if (!dbMatchByCnic) {
+          const cleanCompanyId = (detectId(rawCompany) || '').replace(/[^0-9]/g, '');
+          const cleanNameId    = (detectId(name)       || '').replace(/[^0-9]/g, '');
+          for (const idStr of [cleanCompanyId, cleanNameId]) {
+            if (idStr.length >= 7) {
+              const found = ntnRecords.find(record => {
+                const dbCnic = (record.cnic || '').replace(/[^0-9]/g, '');
+                const dbNtn  = (record.ntn  || '').replace(/[^0-9]/g, '');
+                return (dbCnic && dbCnic === idStr) || (dbNtn && dbNtn === idStr);
+              });
+              if (found) { dbMatchByCnic = found; break; }
+            }
+          }
+        }
+
+        // Best match scoring system (name-based fuzzy)
+        let dbMatchByName: any = null;
         let highestScore = 0;
 
         ntnRecords.forEach(record => {
@@ -1398,39 +1428,70 @@ function AppContent() {
             if (inputNormalized === dbNormalized) return 100;
             
             // 2. Substring match (Score 85)
-            if (inputNormalized.length > 5 && dbNormalized.length > 5) {
-              if (inputNormalized.includes(dbNormalized) || dbNormalized.includes(inputNormalized)) return 85;
+            // 2. Substring Match (Case-insensitive) — Very high score if one contains the other
+            if (inputNormalized.length > 3 && dbNormalized.length > 3) {
+              if (inputNormalized.includes(dbNormalized) || dbNormalized.includes(inputNormalized)) return 95;
             }
 
             // 3. Word match (Score based on percentage)
             if (inputWords.length > 0 && wordsDB.length > 0) {
               const matches = inputWords.filter(w => wordsDB.includes(w));
               const matchRatio = matches.length / Math.max(inputWords.length, wordsDB.length);
-              // Require at least 2 words or 1 very significant word
-              if (matches.length >= 2 || (matches.length === 1 && matches[0].length >= 5)) {
-                return 70 * matchRatio;
+              // Flexible match: if at least 50% words match and we have at least 1 match
+              if (matchRatio >= 0.5 || matches.length >= 2) {
+                return 80 + (matchRatio * 20); // Scale score between 80 and 100
               }
             }
             return 0;
           };
           
-          const score = Math.max(calculateScore(wordsCompany, normalizedCompany), calculateScore(wordsName, normalizedShipperName));
-          if (score > highestScore && score >= 40) { // Lowered threshold slightly for better detection
+          // Sequential matching with strict thresholds
+          let score = 0;
+          if (cleanedCompany && cleanedCompany.length > 2) {
+            score = calculateScore(wordsCompany, normalizedCompany);
+          }
+          // Fallback to Shipper Name if company didn't match well (score < 80)
+          if (score < 80 && cleanedName && cleanedName.length > 2) {
+            const nameScore = calculateScore(wordsName, normalizedShipperName);
+            if (nameScore > score) score = nameScore;
+          }
+
+          // Threshold 95: Extreme accuracy (Exact or direct substring matches only)
+          if (score > highestScore && score >= 95) {
             highestScore = score;
-            dbMatch = record;
+            dbMatchByName = record;
           }
         });
 
+        // CNIC match takes priority over name match
+        const dbMatch = dbMatchByCnic || dbMatchByName;
+        const matchedByCnic = !!dbMatchByCnic;
+
         const foundInDb = !!dbMatch;
         const foundNtn = dbMatch ? (dbMatch.ntn || dbMatch.cnic) : '';
-        const hasInvalidSuffix = invalidSuffixes.some(regex => regex.test(rawCompany));
+        // Check invalid suffix on both Shipper Company and Shipper Name fields
+        const hasInvalidSuffix = invalidSuffixes.some(regex => regex.test(rawCompany) || regex.test(name));
         
         // Proper ID means it has a real number or a match in our database
         const hasProperId = hasIdInRow || foundInDb;
         
         // Missing means NO Proper ID and NO Suffix
         const isMissing = !hasProperId && !hasInvalidSuffix;
-        const isAdvanceUpdate = !hasIdInRow && foundInDb && !hasInvalidSuffix;
+
+        // Universal ID detection: Scan name columns for any existing IDs. 
+        // We no longer rely on a dedicated Tax ID column as per user request.
+        const idRegex = /(\d{7,})|([a-zA-Z]+\d{5,})|(\d{5,}[a-zA-Z]+)|(ntn|cnic)|(\d+[-]\d+)/i;
+        
+        const hasIdInCompanyName = rawCompany && idRegex.test(rawCompany);
+        const hasIdInShipperName = name && idRegex.test(name);
+
+        const hasExistingId = hasIdInCompanyName || hasIdInShipperName;
+
+        // Row is considered "Blank" (Missing ID) if NO ID pattern is found in names
+        const taxIdIsBlank = !hasExistingId;
+        
+        // isAdvanceUpdate: No ID in row + strong DB match + no invalid suffix
+        const isAdvanceUpdate = taxIdIsBlank && foundInDb && !hasInvalidSuffix;
 
         return {
           id: index.toString(),
