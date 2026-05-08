@@ -12,7 +12,8 @@ import {
   PieChart, Database, Hash, FileWarning, Zap, ShoppingBag, GitBranch, UserCircle, Sliders,
   Copy, Check, Edit2, Trash2, XCircle, Plus, X, ShieldCheck, Info, Upload, Download,
   Shield, Key, Save, Mail, LayoutGrid, List, History, FileSpreadsheet, Building2, Barcode,
-  Contact, Activity, Settings2, Building, Fingerprint, ExternalLink
+  Contact, Activity, Settings2, Building, Fingerprint, ExternalLink,
+  MessageSquare, Bot
 } from 'lucide-react';
 
 // Mock User for local development
@@ -289,7 +290,7 @@ const Sidebar = memo(({
     { icon: RefreshCw, label: 'NTN Auto Update' },
     { icon: ShoppingBag, label: 'Bucket Shop' },
     { icon: Layers, label: 'Different Lines' },
-    { icon: Activity, label: 'MDI Checker' },
+    { icon: Activity, label: 'MID Checker' },
     { icon: Sliders, label: 'CTRL/AFR Checker' },
     { icon: FileSpreadsheet, label: 'B2C Sheets' },
     ...(user?.email === ADMIN_EMAIL ? [{ icon: ShieldCheck, label: 'User Management' }] : []),
@@ -1102,6 +1103,83 @@ function AppContent() {
   const [newMdiCode, setNewMdiCode] = useState('');
   const [ntnRecords, setNtnRecords] = useState<any[]>([]);
   const [mdiDatabase, setMdiDatabase] = useState<any[]>([]);
+  const [isHowToUseModalOpen, setIsHowToUseModalOpen] = useState(false);
+  const [helpModalTool, setHelpModalTool] = useState<string | null>(null);
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  const chatbotRef = useRef<HTMLDivElement>(null);
+  const chatbotButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Close chatbot on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isChatbotOpen && 
+        chatbotRef.current && 
+        !chatbotRef.current.contains(event.target as Node) &&
+        chatbotButtonRef.current &&
+        !chatbotButtonRef.current.contains(event.target as Node)
+      ) {
+        setIsChatbotOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isChatbotOpen]);
+
+  const [chatMessages, setChatMessages] = useState<{role: 'bot' | 'user', text: string, showQueryBtn?: string}[]>([
+    { role: 'bot', text: 'Hello! How may I help you? We have these tools on our website. Which tool would you like to learn about?' }
+  ]);
+
+  const TOOL_DESCRIPTIONS: { [key: string]: string } = {
+    'NTN Missing': 'This tool filters shipments that are missing NTN or CNIC numbers. It categorizes them into standard missing and high-value shipments (over $500) for priority review.',
+    'NTN Auto Update': 'A powerful tool that automatically matches shipments with our database to fill in missing NTN/CNIC numbers. It helps you update entire sheets in seconds.',
+    'HS Code': 'This tool validates Harmonized System (HS) codes. It identifies invalid codes (less than 10 digits) and marks valid ones for accurate customs processing.',
+    'Bucket Shop': 'Used to identify "Bucket Shop" shipments—small, frequent shipments that might need consolidation. It checks shipper patterns and values under $500.',
+    'Different Lines': 'Filters shipments where line counts or address formatting (like additional address lines) differ from standard expectations.',
+    'MID Checker': 'Validates Manufacturer ID (MID) codes against a master database to ensure you are using correct and active codes for your shipments.',
+    'CTRL/AFR Checker': 'Monitors bill-sender shipments with "-A" suffixes and tracks payment types (Recipient/Third Party) to flag potential AFR alerts.',
+    'B2C Sheets': 'Specialized for E-Commerce data. It maps quantities and countries to create ready-to-use B2C export sheets with Blue-themed formatting.'
+  };
+
+  const handleChatOption = (tool: string) => {
+    setChatMessages(prev => [
+      ...prev, 
+      { role: 'user', text: `What does ${tool} do?` },
+      { role: 'bot', text: TOOL_DESCRIPTIONS[tool], showQueryBtn: tool }
+    ]);
+  };
+
+  const DRE_QUERY_COLUMNS: { [key: string]: string[] } = {
+    'default': [
+      "Tracking Number", "Master Tracking Number", "Piece Cnt", "CE Commodity Description",
+      "Shipper Company", "Shipper Name", "Shpr Addr", "Recip Cntry", "Dest Loc Cd",
+      "Commodity Harmonized Code", "CE Item HSCode", "CE Item HSCode 1", "Service Type", "Customs Value"
+    ],
+    'Bucket Shop': [
+      "Tracking Number", "Master Tracking Number", "Piece Cnt", "CE Commodity Description",
+      "Shipper Company", "Shipper Name", "Shpr Addr", "Recip Cntry", "Dest Loc Cd",
+      "Commodity Harmonized Code", "CE Item HSCode", "CE Item HSCode 1", "Service Type",
+      "Shipper Ref", "Ship Date 1", "Customs Value", "Shpr City"
+    ],
+    'Different Lines': [
+      "Tracking Number", "Master Tracking Number", "Piece Cnt", "CE Commodity Description",
+      "Shipper Company", "Shipper Name", "Shpr Addl Addr", "Shipper Address line 1",
+      "Shpr Tax ID Number", "Customs Value"
+    ],
+    'CTRL/AFR Checker': [
+      "Tracking Number", "Master Tracking Number", "CE Commodity Description",
+      "Shipper Company", "Recipient Name And Company", "Piece Cnt", "Shpmt Weight",
+      "Weight UOM", "Manifested Description", "Payment Type", "Payment-payor-code",
+      "CE Duty Tax Payor Account Latest", "CE Duty Tax Payor Cd Latest"
+    ],
+    'B2C Sheets': [
+      "Tracking Number", "Shipper Company", "Origin Loc Cd", "Recipient Name And Company",
+      "Dest City Name", "Piece Cnt", "Shpmt Weight", "Weight UOM", "Commodity Desc",
+      "CE Item QtyUnit 1", "Customs Value", "Currency Code", "Recip Phone",
+      "Master Tracking Number", "Origin Cntry", "Recip Cntry", "Recip Postal Code"
+    ]
+  };
 
 
 
@@ -1516,7 +1594,7 @@ function AppContent() {
 
       setNtnMissingResults(processedData as any[]);
       setRecentNtnMissingActivity(processedData.filter(r => r.isMissing && r.value < 500).slice(0, 5));
-      setSubFilter('current-missing');
+      setSubFilter('current-ntn');
       setIsProcessing(false);
       setSuccessMessage(`${processedData.length} Shipments Analyzed Successfully!`);
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -2401,21 +2479,38 @@ function AppContent() {
   };
 
   const exportNtnAutoUpdateResults = () => {
-    if (filteredNtnAutoUpdateRecords.length === 0) return;
-    
-    const exportData = filteredNtnAutoUpdateRecords.map(row => ({
-      'Tracking Number': String(row.tracking),
-      'Shipper Company': row.shipper,
-      'Shipper Name': row.name,
-      'Status': row.status,
-      'Service Type': row.service
-    }));
+    try {
+      const dataToExport = isAdvanceUpdateApplied ? ntnAutoUpdateResults : filteredNtnAutoUpdateRecords;
+      
+      if (!dataToExport || dataToExport.length === 0) {
+        setError('No data available to export at the moment.');
+        setTimeout(() => setError(''), 3000);
+        return;
+      }
+      
+      setSuccessMessage('Preparing your Excel sheet...');
+      
+      const exportData = dataToExport.map(row => ({
+        'AWB #': row?.tracking ? String(row.tracking) : '',
+        'Shipper Company Name': row?.shipper || '',
+        'Shipper Name': row?.name || '',
+        'Status': row?.status || '',
+        'Service Type': row?.service || '',
+        'Original Company': row?.originalCompany || ''
+      }));
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "NTN Auto Update Results");
-    const dateStr = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(wb, `NTN_Auto_Update_Results_${dateStr}.xlsx`);
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "NTN Auto Update Results");
+      const dateStr = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `NTN_Auto_Update_${isAdvanceUpdateApplied ? 'Final' : 'Preview'}_${dateStr}.xlsx`);
+      
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error('Export error:', err);
+      setError('Failed to generate Excel file. Please try again.');
+      setTimeout(() => setError(''), 3000);
+    }
   };
 
   const exportBucketShopResults = () => {
@@ -5039,6 +5134,15 @@ function AppContent() {
                       </button>
                     </div>
                   )}
+                  {hsCodeResults.length === 0 && (
+                    <button 
+                      onClick={() => setIsHowToUseModalOpen(true)}
+                      className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center space-x-2"
+                    >
+                      <Info size={18} className="text-blue-500" />
+                      <span>How to use?</span>
+                    </button>
+                  )}
                   <button 
                     onClick={() => document.getElementById('hs-code-upload')?.click()}
                     className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center space-x-2"
@@ -5221,6 +5325,15 @@ function AppContent() {
                         </button>
                       )}
                     </div>
+                  )}
+                  {ntnMissingResults.length === 0 && (
+                    <button 
+                      onClick={() => setIsHowToUseModalOpen(true)}
+                      className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center space-x-2"
+                    >
+                      <Info size={18} className="text-blue-500" />
+                      <span>How to use?</span>
+                    </button>
                   )}
                   <button 
                     onClick={() => document.getElementById('ntn-missing-upload')?.click()}
@@ -5614,6 +5727,15 @@ function AppContent() {
                       )}
                     </div>
                   )}
+                  {ntnAutoUpdateResults.length === 0 && (
+                    <button 
+                      onClick={() => setIsHowToUseModalOpen(true)}
+                      className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center space-x-2"
+                    >
+                      <Info size={18} className="text-purple-500" />
+                      <span>How to use?</span>
+                    </button>
+                  )}
                   <button 
                     onClick={() => document.getElementById('ntn-auto-upload')?.click()}
                     className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center space-x-2"
@@ -5787,6 +5909,15 @@ function AppContent() {
                       </button>
                     </div>
                   )}
+                  {bucketShopResults.length === 0 && (
+                    <button 
+                      onClick={() => setIsHowToUseModalOpen(true)}
+                      className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center space-x-2"
+                    >
+                      <Info size={18} className="text-teal-500" />
+                      <span>How to use?</span>
+                    </button>
+                  )}
                   <button 
                     onClick={() => document.getElementById('bucket-shop-upload')?.click()}
                     className="px-6 py-3 bg-teal-600 text-white rounded-2xl font-bold shadow-lg shadow-teal-600/20 hover:bg-teal-700 transition-all flex items-center space-x-2"
@@ -5906,6 +6037,15 @@ function AppContent() {
                       </button>
                     </div>
                   )}
+                  {differentLinesResults.length === 0 && (
+                    <button 
+                      onClick={() => setIsHowToUseModalOpen(true)}
+                      className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center space-x-2"
+                    >
+                      <Info size={18} className="text-yellow-500" />
+                      <span>How to use?</span>
+                    </button>
+                  )}
                   <button 
                     onClick={() => document.getElementById('different-lines-upload')?.click()}
                     className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center space-x-2"
@@ -6021,13 +6161,13 @@ function AppContent() {
           </div>
         )}
 
-        {activeTab === 'MDI Checker' && (
+        {activeTab === 'MID Checker' && (
           <div className="space-y-8">
             <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
-                  <h2 className="text-3xl font-black text-gray-800 tracking-tight">MDI Checker Tool</h2>
-                  <p className="text-gray-400 font-medium mt-1">Check and validate MDI records (US Country & Non-Blank Descriptions)</p>
+                  <h2 className="text-3xl font-black text-gray-800 tracking-tight">MID Checker Tool</h2>
+                  <p className="text-gray-400 font-medium mt-1">Check and validate MID records (US Country & Non-Blank Descriptions)</p>
                 </div>
                 <div className="flex items-center space-x-3">
                   {mdiCheckerResults.length > 0 && (
@@ -6055,6 +6195,15 @@ function AppContent() {
                     <Database size={18} />
                     <span>Manage Database</span>
                   </button>
+                  {mdiCheckerResults.length === 0 && (
+                    <button 
+                      onClick={() => setIsHowToUseModalOpen(true)}
+                      className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center space-x-2"
+                    >
+                      <Info size={18} className="text-blue-500" />
+                      <span>How to use?</span>
+                    </button>
+                  )}
                   <button 
                     onClick={() => document.getElementById('mdi-checker-upload')?.click()}
                     className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center space-x-2"
@@ -6205,6 +6354,15 @@ function AppContent() {
                         <span>Export Results</span>
                       </button>
                     </div>
+                  )}
+                  {afrResults.length === 0 && (
+                    <button 
+                      onClick={() => setIsHowToUseModalOpen(true)}
+                      className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center space-x-2"
+                    >
+                      <Info size={18} className="text-amber-500" />
+                      <span>How to use?</span>
+                    </button>
                   )}
                   <button 
                     onClick={() => document.getElementById('afr-checker-upload')?.click()}
@@ -6363,6 +6521,15 @@ function AppContent() {
                       )}
                     </div>
                   )}
+                  {b2cSheetsResults.length === 0 && (
+                    <button 
+                      onClick={() => setIsHowToUseModalOpen(true)}
+                      className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center space-x-2"
+                    >
+                      <Info size={18} className="text-emerald-500" />
+                      <span>How to use?</span>
+                    </button>
+                  )}
                   <button 
                     onClick={() => document.getElementById('b2c-sheets-upload')?.click()}
                     className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center space-x-2"
@@ -6477,7 +6644,7 @@ function AppContent() {
         )}
 
         {/* Placeholder for other tabs */}
-        {!['Dashboard', 'NTN Search', 'Profile', 'HS Code', 'NTN Missing', 'NTN Auto Update', 'Bucket Shop', 'Different Lines', 'MDI Checker', 'CTRL/AFR Checker', 'B2C Sheets'].includes(activeTab) && (
+        {!['Dashboard', 'NTN Search', 'Profile', 'HS Code', 'NTN Missing', 'NTN Auto Update', 'Bucket Shop', 'Different Lines', 'MID Checker', 'CTRL/AFR Checker', 'B2C Sheets'].includes(activeTab) && (
               <div className="flex flex-col items-center justify-center h-full py-20">
                 <div className="w-24 h-24 bg-gray-100 rounded-[32px] flex items-center justify-center text-gray-300 mb-6">
                   <Database size={48} />
@@ -7029,7 +7196,232 @@ function AppContent() {
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
+          {isHowToUseModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => {
+                  setIsHowToUseModalOpen(false);
+                  setHelpModalTool(null);
+                }}
+                className="absolute inset-0 bg-gray-900/40 backdrop-blur-md"
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="bg-white rounded-[40px] p-8 max-w-lg w-full relative shadow-2xl overflow-hidden"
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center space-x-4">
+                    <div className={`w-12 h-12 ${(helpModalTool || activeTab) === 'NTN Auto Update' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'} rounded-2xl flex items-center justify-center`}>
+                      <Info size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-gray-800 tracking-tight">
+                        {(helpModalTool || activeTab) === 'NTN Auto Update' ? 'Excel Sheet Format' : 'DRE Portal Query'}
+                      </h3>
+                      <p className="text-gray-400 text-xs font-medium uppercase tracking-widest font-black">
+                        {(helpModalTool || activeTab) === 'NTN Auto Update' ? 'Follow this format for upload' : 'Go DRE Portal Run This Query'}
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setIsHowToUseModalOpen(false); setHelpModalTool(null); }} className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-all">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="bg-gray-50 rounded-3xl p-6 border border-gray-100 mb-8 max-h-[400px] overflow-y-auto custom-scrollbar">
+                  <div className="space-y-2">
+                    {(helpModalTool || activeTab) === 'NTN Auto Update' ? (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4 pb-2 border-b border-gray-200">
+                          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">AWB #</span>
+                          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Shipper Company Name</span>
+                        </div>
+                        {[
+                          { awb: '772345612344', company: 'ABCD PVT LTD' },
+                          { awb: '772345612355', company: 'XYZ LOGISTICS' },
+                          { awb: '772345612366', company: 'GLOBAL TRADING CO' },
+                          { awb: '772345612377', company: 'PRIME SOLUTIONS' }
+                        ].map((ex, i) => (
+                          <div key={i} className="grid grid-cols-2 gap-4 py-1">
+                            <span className="text-sm font-bold text-blue-600 font-mono">{ex.awb}</span>
+                            <span className="text-sm font-bold text-gray-600">{ex.company}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      (DRE_QUERY_COLUMNS[helpModalTool || activeTab] || DRE_QUERY_COLUMNS['default']).map((col, i) => (
+                        <div key={i} className="flex items-center space-x-3 text-sm font-bold text-gray-600">
+                          <div className={`w-1.5 h-1.5 ${
+                            (helpModalTool || activeTab) === 'Bucket Shop' ? 'bg-teal-400' : 
+                            (helpModalTool || activeTab) === 'Different Lines' ? 'bg-yellow-400' : 
+                            (helpModalTool || activeTab) === 'CTRL/AFR Checker' ? 'bg-amber-400' : 
+                            (helpModalTool || activeTab) === 'B2C Sheets' ? 'bg-emerald-400' : 
+                            'bg-blue-400'
+                          } rounded-full`} />
+                          <span>{col}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {(helpModalTool || activeTab) !== 'NTN Auto Update' && (
+                  <button 
+                    onClick={() => {
+                      const cols = DRE_QUERY_COLUMNS[helpModalTool || activeTab] || DRE_QUERY_COLUMNS['default'];
+                      const textToCopy = cols.join('\n');
+                      navigator.clipboard.writeText(textToCopy);
+                      setSuccessMessage('Query Columns Copied Successfully!');
+                      setIsHowToUseModalOpen(false);
+                      setHelpModalTool(null);
+                      setTimeout(() => setSuccessMessage(''), 3000);
+                    }}
+                    className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-3"
+                  >
+                    <Copy size={18} />
+                    <span>Copy Column List</span>
+                  </button>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Floating Chatbot */}
+        <div className="fixed bottom-8 right-8 z-[100]">
+          <AnimatePresence>
+            {isChatbotOpen && (
+              <motion.div
+                ref={chatbotRef}
+                initial={{ opacity: 0, scale: 0.8, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.8, y: 20 }}
+                className="absolute bottom-20 right-0 w-80 bg-white rounded-[32px] shadow-2xl border border-gray-100 overflow-hidden flex flex-col"
+              >
+                {/* Chat Header */}
+                <div className="bg-indigo-600 p-6 flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white">
+                      <Bot size={24} />
+                    </div>
+                    <div>
+                      <h4 className="text-white font-black text-sm">NTN Assistant</h4>
+                      <p className="text-indigo-100 text-[10px] font-bold uppercase tracking-widest">Always Online</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setIsChatbotOpen(false)} className="text-white/60 hover:text-white">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Messages Area */}
+                <div className="h-96 overflow-y-auto p-6 space-y-4 bg-gray-50/50 custom-scrollbar">
+                  {chatMessages.map((msg, i) => (
+                    <motion.div
+                      initial={{ opacity: 0, x: msg.role === 'bot' ? -10 : 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      key={i}
+                      className={`flex flex-col ${msg.role === 'bot' ? 'items-start' : 'items-end'}`}
+                    >
+                      <div className={`max-w-[85%] p-4 rounded-2xl text-sm font-bold leading-relaxed shadow-sm ${
+                        msg.role === 'bot' 
+                          ? 'bg-white text-gray-700 rounded-tl-none' 
+                          : 'bg-indigo-600 text-white rounded-tr-none'
+                      }`}>
+                        {msg.text}
+                      </div>
+                      
+                      {msg.showQueryBtn && (
+                        <button
+                          onClick={() => {
+                            setHelpModalTool(msg.showQueryBtn as string);
+                            setIsHowToUseModalOpen(true);
+                          }}
+                          className="mt-2 flex items-center space-x-2 px-4 py-2 bg-white border border-indigo-100 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all shadow-sm"
+                        >
+                          <FileCode size={14} />
+                          <span>Get Query</span>
+                        </button>
+                      )}
+                    </motion.div>
+                  ))}
+                </div>
+
+                {/* Quick Options */}
+                <div className="p-4 bg-white border-t border-gray-100">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 pl-2">Quick Help:</p>
+                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
+                    {Object.keys(TOOL_DESCRIPTIONS).map((tool) => (
+                      <button
+                        key={tool}
+                        onClick={() => handleChatOption(tool)}
+                        className="px-3 py-1.5 bg-gray-50 text-gray-600 text-[10px] font-black rounded-lg border border-gray-100 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-all"
+                      >
+                        {tool}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <motion.button
+            ref={chatbotButtonRef}
+            animate={isChatbotOpen ? { rotate: 0 } : { 
+              y: [0, -10, 0],
+            }}
+            transition={{
+              y: { duration: 3, repeat: Infinity, ease: "easeInOut" }
+            }}
+            whileHover={{ scale: 1.1, boxShadow: "0 20px 25px -5px rgb(79 70 229 / 0.4)" }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setIsChatbotOpen(!isChatbotOpen)}
+            className={`w-16 h-16 rounded-[24px] shadow-2xl flex items-center justify-center transition-all relative group ${
+              isChatbotOpen 
+                ? 'bg-gradient-to-tr from-red-500 to-rose-600 text-white' 
+                : 'bg-gradient-to-tr from-indigo-600 to-violet-700 text-white'
+            }`}
+          >
+            {/* Animated Pulse Ring */}
+            {!isChatbotOpen && (
+              <motion.div
+                animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="absolute inset-0 rounded-[24px] bg-indigo-500 -z-10"
+              />
+            )}
+            
+            <AnimatePresence mode="wait">
+              {isChatbotOpen ? (
+                <motion.div
+                  key="close"
+                  initial={{ opacity: 0, rotate: -90 }}
+                  animate={{ opacity: 1, rotate: 0 }}
+                  exit={{ opacity: 0, rotate: 90 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <X size={28} />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="chat"
+                  initial={{ opacity: 0, rotate: 90 }}
+                  animate={{ opacity: 1, rotate: 0 }}
+                  exit={{ opacity: 0, rotate: -90 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <MessageSquare size={28} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.button>
+        </div>
     </div>
   );
 }
