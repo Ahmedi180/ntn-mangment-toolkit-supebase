@@ -5140,7 +5140,7 @@ function AppContent() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
                 { id: 'advance-update', label: 'ADVANCE NTN UPDATE', value: ntnMissingResults.filter(r => r.isAdvanceUpdate && r.value < 500).length.toLocaleString(), icon: Zap, color: 'emerald', bg: 'bg-emerald-50/50', iconBg: 'bg-emerald-500' },
-                { id: 'current-missing', label: 'CURRENT RESULTS', value: ntnMissingResults.filter(r => r.isMissing && r.value < 500).length.toLocaleString(), icon: Search, color: 'orange', bg: 'bg-orange-50/50', iconBg: 'bg-orange-500' },
+                { id: 'current-ntn', label: 'CURRENT RESULTS', value: ntnMissingResults.filter(r => r.isMissing && r.value < 500).length.toLocaleString(), icon: Search, color: 'orange', bg: 'bg-orange-50/50', iconBg: 'bg-orange-500' },
                 { id: 'high-value', label: 'HIGH VALUE SHIPMENTS', value: ntnMissingResults.filter(r => r.value >= 500).length.toLocaleString(), icon: AlertCircle, color: 'blue', bg: 'bg-blue-50/50', iconBg: 'bg-blue-500' },
               ].map((stat, i) => (
                 <div 
