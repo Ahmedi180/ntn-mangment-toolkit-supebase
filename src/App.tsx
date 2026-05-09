@@ -91,31 +91,62 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
-// Enhanced NTN pattern to include alphanumeric NTNs like A123457, B123456, D123457 and handle optional hyphens
-// Added support for NTN.NO, NTN.N0, etc.
-// Stricter digit matching to avoid picking up random text
-const NTN_REGEX = /(\d{6,13}(?:-\d)?)/;
+// Highly flexible patterns for Pakistani ID detection (Allows 6-8 digits for NTN)
+const NTN_REGEX = /(?:NTN|NTN\.?NO|NTN[:#.\s]*|STRN[:#.\s]*)?([A-Z]\d{5,8}|\d{6,8}-?\d?)/i;
+const CNIC_REGEX = /(?:CNIC|NIC|ID[:#.\s]*)?(\d{5}-?\d{7}-?\d|\d{13})/i;
+const GENERIC_ID_REGEX = /([A-Z]\d{5,8}|\d{6,8}|\d{13}|\d{5}-?\d{7}-?\d)/i;
 
-const cleanNtnValue = (ntn: string) => {
-  if (!ntn) return '';
-  // Clean up extra words like (MID:...)
-  let cleaned = ntn.split('(')[0].trim();
-  // Remove NTN prefixes, dots, etc.
-  cleaned = cleaned.replace(/NTN(?:\.NO|\.N0|\s*NO|\s*N0|\s*[:#.]?)/gi, '').trim();
-  // Remove anything that's not alphanumeric or hyphen
-  cleaned = cleaned.replace(/[^A-Z0-9-]/gi, '').toUpperCase();
+const cleanNtnValue = (val: string) => {
+  if (!val) return '';
   
-  // If it's a CNIC (13 digits), format it
-  if (/^\d{13}$/.test(cleaned)) {
-    cleaned = cleaned.slice(0, 5) + '-' + cleaned.slice(5, 12) + '-' + cleaned.slice(12);
-  }
-  // Ensure it's in standard format if it's 8 digits
-  else if (/^\d{8}$/.test(cleaned)) {
-    cleaned = cleaned.slice(0, 7) + '-' + cleaned.slice(7);
+  // Remove brackets and common noise
+  let cleaned = val.replace(/[()[\]{}]/g, '').trim();
+  
+  // Try to find CNIC first (13 digits)
+  const cnicMatch = cleaned.match(CNIC_REGEX);
+  if (cnicMatch) {
+    let digits = cnicMatch[1].replace(/[^0-9]/g, '');
+    if (digits.length === 13) {
+      return `CNIC ${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+    }
   }
   
-  // Return only the cleaned value if it looks like a number/NTN
-  return cleaned.length >= 7 ? `NTN ${cleaned}` : '';
+  // Try to find NTN (7-8 digits OR Alphanumeric like A12345)
+  const ntnMatch = cleaned.match(NTN_REGEX);
+  if (ntnMatch) {
+    let matchedId = ntnMatch[1].toUpperCase();
+    // If it's alphanumeric (A-Z...)
+    if (/^[A-Z]/.test(matchedId)) {
+      return `NTN ${matchedId}`;
+    }
+    // If it's pure digits
+    let digits = matchedId.replace(/[^0-9]/g, '');
+    if (digits.length >= 7 && digits.length <= 8) {
+      return `NTN ${digits.length === 8 ? digits.slice(0, 7) + '-' + digits.slice(7) : digits}`;
+    } else if (digits.length === 6) {
+      return `NTN ${digits}`;
+    }
+  }
+
+  // Fallback to generic detection
+  const genericMatch = cleaned.match(GENERIC_ID_REGEX);
+  if (genericMatch) {
+    let matchedId = genericMatch[1].toUpperCase();
+    if (/^[A-Z]/.test(matchedId)) {
+      return `NTN ${matchedId}`;
+    }
+    let digits = matchedId.replace(/[^0-9]/g, '');
+    if (digits.length === 13) {
+      return `CNIC ${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+    } else if (digits.length >= 6 && digits.length <= 8) {
+      if (digits.length === 13) {
+         return `CNIC ${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+      }
+      return `NTN ${digits.length === 8 ? digits.slice(0, 7) + '-' + digits.slice(7) : digits}`;
+    }
+  }
+  
+  return '';
 };
 
 const getRawNtn = (ntn: string) => {
@@ -1329,12 +1360,17 @@ function AppContent() {
   const processHSCodeFile = (data: any[]) => {
     setIsProcessing(true);
     setTimeout(() => {
-      // Keep all rows, even if commodity is blank, as long as they have a tracking number
+      // Filter: Keep rows with tracking number, US country, and NON-BLANK commodity description
       const filteredData = data.filter(row => {
         const trackingNum = String(row['Tracking Number'] || row['tracking'] || '').trim();
         const country = row['Recip Cntry'] || row['Country'] || '';
+        const commodity = (row['CE Commodity Description'] || row['Description'] || '').toString().trim();
+        
         if (!trackingNum || trackingNum === 'N/A') return false;
-        return country.toString().trim().toUpperCase() === 'US';
+        if (country.toString().trim().toUpperCase() !== 'US') return false;
+        
+        // Delete if commodity is blank
+        return commodity !== '';
       });
 
       const results = filteredData.map((row, index) => {
@@ -1436,24 +1472,20 @@ function AppContent() {
         // Strict filter: Delete if description is blank (User requested this to be the priority)
         if (!desc || desc.trim() === '') return null;
 
-        const hasIdInRow = NTN_REGEX.test(rawCompany) || cnicPattern.test(rawCompany) || numericIdPattern.test(rawCompany) ||
-                         NTN_REGEX.test(name) || cnicPattern.test(name) || numericIdPattern.test(name) ||
-                         NTN_REGEX.test(taxId) || cnicPattern.test(taxId) || numericIdPattern.test(taxId);
+        const hasIdInRow = NTN_REGEX.test(rawCompany) || CNIC_REGEX.test(rawCompany) || GENERIC_ID_REGEX.test(rawCompany) ||
+                         NTN_REGEX.test(name) || CNIC_REGEX.test(name) || GENERIC_ID_REGEX.test(name);
 
         const detectId = (str: string) => {
-          const match = str.match(NTN_REGEX) || str.match(cnicPattern) || str.match(numericIdPattern);
+          const match = str.match(CNIC_REGEX) || str.match(NTN_REGEX) || str.match(GENERIC_ID_REGEX);
           return match ? match[0] : '';
         };
 
-        const detectedId = detectId(rawCompany) || detectId(name) || detectId(taxId);
+        const detectedId = detectId(rawCompany) || detectId(name);
 
         const cleanedCompany = rawCompany.replace(NTN_REGEX, '').replace(cnicPattern, '').replace(numericIdPattern, '').trim();
         const cleanedName = name.replace(NTN_REGEX, '').replace(cnicPattern, '').replace(numericIdPattern, '').trim();
         
-        const cleanName = (str: string) => str.toLowerCase()
-          .replace(/\b(m\/s|pvt|ltd|limited|company|co|industries|industry|leathers|global|international|mr|mrs|ms|miss|dr|sh|syed|mian)\b/g, '')
-          .replace(/[^a-z0-9]/g, ' ')
-          .trim();
+        const cleanName = (str: string) => str.toLowerCase().trim();
           
         const getWords = (str: string) => str.split(/\s+/).filter(w => w.length >= 2);
         const normalizedCompany = cleanName(cleanedCompany);
@@ -1461,31 +1493,19 @@ function AppContent() {
         const wordsCompany = getWords(normalizedCompany);
         const wordsName = getWords(normalizedShipperName);
 
-        // --- CNIC / NTN direct match against database ---
-        // If the Excel row's Tax ID matches a record's cnic or ntn, it's a guaranteed match.
+        // --- MATCHING AGAINST DATABASE ---
+        // Match rawCompany / name CNIC-style digits against db cnic/ntn
         let dbMatchByCnic: any = null;
-        const cleanTaxId = taxId.replace(/[^0-9]/g, '');
-        if (cleanTaxId.length >= 7) {
-          dbMatchByCnic = ntnRecords.find(record => {
-            const dbCnic = (record.cnic || '').replace(/[^0-9]/g, '');
-            const dbNtn  = (record.ntn  || '').replace(/[^0-9]/g, '');
-            return (dbCnic && dbCnic === cleanTaxId) || (dbNtn && dbNtn === cleanTaxId);
-          }) || null;
-        }
-
-        // Also try matching rawCompany / name CNIC-style digits against db cnic/ntn
-        if (!dbMatchByCnic) {
-          const cleanCompanyId = (detectId(rawCompany) || '').replace(/[^0-9]/g, '');
-          const cleanNameId    = (detectId(name)       || '').replace(/[^0-9]/g, '');
-          for (const idStr of [cleanCompanyId, cleanNameId]) {
-            if (idStr.length >= 7) {
-              const found = ntnRecords.find(record => {
-                const dbCnic = (record.cnic || '').replace(/[^0-9]/g, '');
-                const dbNtn  = (record.ntn  || '').replace(/[^0-9]/g, '');
-                return (dbCnic && dbCnic === idStr) || (dbNtn && dbNtn === idStr);
-              });
-              if (found) { dbMatchByCnic = found; break; }
-            }
+        const cleanCompanyId = (detectId(rawCompany) || '').replace(/[^0-9]/g, '');
+        const cleanNameId    = (detectId(name)       || '').replace(/[^0-9]/g, '');
+        for (const idStr of [cleanCompanyId, cleanNameId]) {
+          if (idStr.length >= 7) {
+            const found = ntnRecords.find(record => {
+              const dbCnic = (record.cnic || '').replace(/[^0-9]/g, '');
+              const dbNtn  = (record.ntn  || '').replace(/[^0-9]/g, '');
+              return (dbCnic && dbCnic === idStr) || (dbNtn && dbNtn === idStr);
+            });
+            if (found) { dbMatchByCnic = found; break; }
           }
         }
 
@@ -1534,9 +1554,9 @@ function AppContent() {
             if (nameScore > score) score = nameScore;
           }
 
-          // Threshold 95: Extreme accuracy (Exact or direct substring matches only)
-          if (score > highestScore && score >= 95) {
-            highestScore = score;
+          // Threshold 100: Exact match only as requested by user
+          if (score === 100) {
+            highestScore = 100;
             dbMatchByName = record;
           }
         });
@@ -1550,26 +1570,14 @@ function AppContent() {
         // Check invalid suffix on both Shipper Company and Shipper Name fields
         const hasInvalidSuffix = invalidSuffixes.some(regex => regex.test(rawCompany) || regex.test(name));
         
-        // Proper ID means it has a real number or a match in our database
+        // Proper ID means it has a real number (found in row) or a match in our database
         const hasProperId = hasIdInRow || foundInDb;
         
         // Missing means NO Proper ID and NO Suffix
         const isMissing = !hasProperId && !hasInvalidSuffix;
 
-        // Universal ID detection: Scan name columns for any existing IDs. 
-        // We no longer rely on a dedicated Tax ID column as per user request.
-        const idRegex = /(\d{7,})|([a-zA-Z]+\d{5,})|(\d{5,}[a-zA-Z]+)|(ntn|cnic)|(\d+[-]\d+)/i;
-        
-        const hasIdInCompanyName = rawCompany && idRegex.test(rawCompany);
-        const hasIdInShipperName = name && idRegex.test(name);
-
-        const hasExistingId = hasIdInCompanyName || hasIdInShipperName;
-
-        // Row is considered "Blank" (Missing ID) if NO ID pattern is found in names
-        const taxIdIsBlank = !hasExistingId;
-        
         // isAdvanceUpdate: No ID in row + strong DB match + no invalid suffix
-        const isAdvanceUpdate = taxIdIsBlank && foundInDb && !hasInvalidSuffix;
+        const isAdvanceUpdate = !hasIdInRow && foundInDb && !hasInvalidSuffix;
 
         return {
           id: index.toString(),
@@ -1742,8 +1750,8 @@ function AppContent() {
           };
           
           const score = Math.max(calculateScore(wordsCompany, normalizedCompany), calculateScore(wordsName, normalizedShipperName));
-          if (score > highestScore && score >= 40) { // Lowered threshold slightly
-            highestScore = score;
+          if (score === 100) { // Exact match only
+            highestScore = 100;
             match = record;
           }
         });
@@ -2997,11 +3005,10 @@ function AppContent() {
     setIsViewModalOpen(true);
   };
 
-  const saveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
+  const saveEdit = async (updatedRecord: any) => {
+    if (!user || !updatedRecord) return;
     
-    const { id, type, data, ...updateData } = editingRecord;
+    const { id, type, data, ...updateData } = updatedRecord;
     const collectionName = type === 'HS' ? 'hs_code_records' : 'ntn_records';
     
     try {
