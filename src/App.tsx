@@ -1438,7 +1438,7 @@ function AppContent() {
       const cnicPattern = /\b\d{5}-\d{7}-\d\b|\b\d{13}\b|\b\d{11}\b/;
       const numericIdPattern = /\b\d{7,13}\b/;
       // Invalid suffix patterns: -A, -C, -B, -E FORM, -EFORM, -E-FORM at end of company name
-      const invalidSuffixes = [/-e[-\s]*form$/i, /-[abc]$/i];
+      const invalidSuffixes = [/-e[-\s]*form(\/ntn)?$/i, /-[abc]$/i];
 
       const processedData = data.map((row, index) => {
         // ... (existing logic)
@@ -1567,8 +1567,12 @@ function AppContent() {
 
         const foundInDb = !!dbMatch;
         const foundNtn = dbMatch ? (dbMatch.ntn || dbMatch.cnic) : '';
-        // Check invalid suffix on both Shipper Company and Shipper Name fields
-        const hasInvalidSuffix = invalidSuffixes.some(regex => regex.test(rawCompany) || regex.test(name));
+        const eFormRegex = /-e[-\s]*form(\/ntn)?\s*$/i;
+        const standardExemptRegex = /-[abc]\s*$/i;
+        
+        const hasEFormSuffix = eFormRegex.test(rawCompany) || eFormRegex.test(name);
+        const hasStandardExemptSuffix = standardExemptRegex.test(rawCompany) || standardExemptRegex.test(name);
+        const hasInvalidSuffix = hasEFormSuffix || hasStandardExemptSuffix;
         
         // Proper ID means it has a real number (found in row) or a match in our database
         const hasProperId = hasIdInRow || foundInDb;
@@ -1591,6 +1595,8 @@ function AppContent() {
           hasProperId,
           hasIdInRow,
           detectedId,
+          hasEFormSuffix,
+          hasStandardExemptSuffix,
           hasInvalidSuffix,
           foundInDb,
           dbId: dbMatch?.id,
@@ -2331,9 +2337,9 @@ function AppContent() {
         const shipperCompany = (row['Shipper Company'] || row['shipper'] || '').toString().trim();
         const shipperName = (row['CE Duty Tax Payor Account Latest'] || row['Shipper Name'] || row['name'] || '').toString().trim();
         const service = (row['Service Type'] || row['service'] || 'N/A').toString().trim();
-        const description = (row['CE Commodity Description'] || row['Manifested Description'] || '').toString().trim();
+        const description = (row['CE Commodity Description'] || '').toString().trim();
         
-        // 1. Skip if description is blank
+        // 1. Skip if CE Commodity Description is blank
         if (!description) return null;
 
         // 2. Find payment column (check specific name 'Payment-payor-code' first)
@@ -3316,15 +3322,42 @@ function AppContent() {
 
 
 
+  const sendSignupNotification = async (userEmail: string) => {
+    if (!emailjsServiceId || !emailjsTemplateId || !emailjsPublicKey) {
+      console.warn('EmailJS settings are missing. Notification not sent.');
+      return;
+    }
+
+    const templateParams = {
+      name: 'NTN Toolkit',
+      email: userEmail,
+      message: `A new user has signed up with email: ${userEmail}. Please review and approve their access request in the dashboard.`,
+    };
+
+    try {
+      await emailjs.send(
+        emailjsServiceId,
+        emailjsTemplateId,
+        templateParams,
+        emailjsPublicKey
+      );
+      console.log('Signup notification sent to admin.');
+    } catch (error) {
+      console.error('Failed to send signup notification:', error);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
     setLoading(true);
     
+    const cleanEmail = email.trim();
+    
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
         if (error) throw error;
         setSuccessMessage('Login successful!');
       } else {
@@ -3333,8 +3366,12 @@ function AppContent() {
           setLoading(false);
           return;
         }
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({ email: cleanEmail, password });
         if (error) throw error;
+        
+        // Send notification to admin
+        await sendSignupNotification(cleanEmail);
+        
         setSuccessMessage('Account created successfully! Waiting for approval.');
         setIsLogin(true);
       }
@@ -5043,20 +5080,27 @@ function AppContent() {
                             className="w-full bg-gray-50 border border-gray-100 rounded-xl py-3 px-4 text-xs font-bold focus:outline-none focus:border-blue-500 transition-all"
                           />
                           <button 
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              const btn = e.currentTarget;
+                              const originalText = btn.innerText;
+                              btn.innerText = 'Saving...';
+                              btn.disabled = true;
                               try {
                                 await supabase.from('settings').upsert({ id: 'emailjs_service_id', value: emailjsServiceId });
                                 await supabase.from('settings').upsert({ id: 'emailjs_template_id', value: emailjsTemplateId });
                                 await supabase.from('settings').upsert({ id: 'emailjs_public_key', value: emailjsPublicKey });
-                                setSuccessMessage('Email settings saved to database!');
+                                window.alert('Email settings saved successfully!');
+                                setSuccessMessage('Email settings updated!');
                                 setTimeout(() => setSuccessMessage(''), 3000);
                               } catch (err) {
                                 console.error('Error saving email settings:', err);
-                                setError('Failed to save email settings');
-                                setTimeout(() => setError(''), 3000);
+                                window.alert('Failed to save settings. Please check console.');
+                              } finally {
+                                btn.innerText = originalText;
+                                btn.disabled = false;
                               }
                             }}
-                            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all"
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20 active:scale-95 mt-4"
                           >
                             Save Email Settings
                           </button>
@@ -5252,7 +5296,7 @@ function AppContent() {
               {[
                 { id: 'advance-update', label: 'ADVANCE NTN UPDATE', value: ntnMissingResults.filter(r => r.isAdvanceUpdate && r.value < 500).length.toLocaleString(), icon: Zap, color: 'emerald', bg: 'bg-emerald-50/50', iconBg: 'bg-emerald-500' },
                 { id: 'current-ntn', label: 'CURRENT RESULTS', value: ntnMissingResults.filter(r => r.isMissing && r.value < 500).length.toLocaleString(), icon: Search, color: 'orange', bg: 'bg-orange-50/50', iconBg: 'bg-orange-500' },
-                { id: 'high-value', label: 'HIGH VALUE SHIPMENTS', value: ntnMissingResults.filter(r => r.value >= 500).length.toLocaleString(), icon: AlertCircle, color: 'blue', bg: 'bg-blue-50/50', iconBg: 'bg-blue-500' },
+                { id: 'high-value', label: 'HIGH VALUE SHIPMENTS', value: ntnMissingResults.filter(r => r.value >= 500 || r.hasEFormSuffix).length.toLocaleString(), icon: AlertCircle, color: 'blue', bg: 'bg-blue-50/50', iconBg: 'bg-blue-500' },
               ].map((stat, i) => (
                 <div 
                   key={i} 
@@ -5490,7 +5534,7 @@ function AppContent() {
                   )}
 
                   {/* High Value Section for Verified Results (Proper NTN/CNIC only) */}
-                  {subFilter === 'high-value' && ntnMissingResults.filter(r => r.hasIdInRow && r.value >= 500).length > 0 && (
+                  {subFilter === 'high-value' && ntnMissingResults.filter(r => (r.hasIdInRow && r.value >= 500) || r.hasEFormSuffix).length > 0 && (
                     <div className="mb-8">
                       <button 
                         onClick={() => setIsHighValueMissingExpanded(!isHighValueMissingExpanded)}
@@ -5502,7 +5546,7 @@ function AppContent() {
                           </div>
                           <div className="text-left">
                             <h4 className="text-emerald-900 font-black text-xl tracking-tight uppercase">High Value Verified (NTN/CNIC in File)</h4>
-                            <p className="text-emerald-700/70 font-bold text-sm">Hidden Review: {ntnMissingResults.filter(r => r.hasIdInRow && r.value >= 500).length} shipments with Proper IDs</p>
+                            <p className="text-emerald-700/70 font-bold text-sm">Hidden Review: {ntnMissingResults.filter(r => (r.hasIdInRow && r.value >= 500) || r.hasEFormSuffix).length} shipments Verified or E-Form</p>
                           </div>
                         </div>
                         <div className={`w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-emerald-600 shadow-sm transition-all ${isHighValueMissingExpanded ? 'rotate-180 bg-emerald-600 text-white' : 'group-hover:shadow-md'}`}>
@@ -5523,15 +5567,28 @@ function AppContent() {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-emerald-50">
-                                {ntnMissingResults.filter(r => r.hasIdInRow && r.value >= 500).map((row, i) => (
-                                  <tr key={i} className="hover:bg-emerald-50/50 transition-all">
+                                {ntnMissingResults
+                                  .filter(r => (r.hasIdInRow && r.value >= 500) || r.hasEFormSuffix)
+                                  .sort((a, b) => {
+                                    // Verified ID with high value (a.hasIdInRow && a.value >= 500) takes priority
+                                    const aPri = a.hasIdInRow && a.value >= 500 ? 1 : 0;
+                                    const bPri = b.hasIdInRow && b.value >= 500 ? 1 : 0;
+                                    return bPri - aPri;
+                                  })
+                                  .map((row, i) => (
+                                  <tr key={i} className={`transition-all ${row.hasIdInRow && row.value >= 500 ? 'bg-blue-50/70 border-l-4 border-blue-600' : 'hover:bg-emerald-50/50'}`}>
                                     <td className="py-4 pl-6">
                                       <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-lg">{row.tracking}</span>
                                     </td>
                                     <td className="py-4">
                                       <div className="flex items-center space-x-2">
                                         <p className="text-sm font-bold text-gray-900">{row.shipper}</p>
-                                        <span className="text-[9px] font-black bg-red-500 text-white px-2 py-0.5 rounded-full tracking-tighter whitespace-nowrap uppercase">High Value</span>
+                                        {row.value >= 500 && (
+                                          <span className="text-[9px] font-black bg-red-500 text-white px-2 py-0.5 rounded-full tracking-tighter whitespace-nowrap uppercase">High Value</span>
+                                        )}
+                                        {row.hasInvalidSuffix && (
+                                          <span className="text-[9px] font-black bg-blue-500 text-white px-2 py-0.5 rounded-full tracking-tighter whitespace-nowrap uppercase">Exempted Suffix</span>
+                                        )}
                                       </div>
                                     </td>
                                     <td className="py-4">
@@ -5539,7 +5596,16 @@ function AppContent() {
                                     </td>
                                     <td className="py-4 pr-6 text-right">
                                       <div className="flex flex-col items-end">
-                                        <span className="text-[9px] font-black px-3 py-1 rounded-full bg-emerald-600 text-white tracking-widest uppercase mb-1">Verified ID</span>
+                                          {row.hasIdInRow && row.value >= 500 ? (
+                                            <span className="text-[9px] font-black px-3 py-1 rounded-full bg-blue-600 text-white tracking-widest uppercase mb-1 flex items-center gap-1 shadow-lg shadow-blue-500/30">
+                                              <ShieldCheck size={10} />
+                                              VERIFIED ID ALERT
+                                            </span>
+                                          ) : (
+                                            <span className="text-[9px] font-black px-3 py-1 rounded-full bg-emerald-600 text-white tracking-widest uppercase mb-1">
+                                              {row.hasEFormSuffix ? 'SUFFIX EXEMPTED' : 'Verified ID'}
+                                            </span>
+                                          )}
                                         {row.detectedId && <span className="text-[10px] font-mono font-bold text-emerald-600">{row.detectedId}</span>}
                                       </div>
                                     </td>
@@ -5565,7 +5631,7 @@ function AppContent() {
                           {subFilter === 'current-ntn' 
                             ? ntnMissingResults.filter(r => r.isMissing && r.value < 500).length 
                             : subFilter === 'high-value' 
-                            ? ntnMissingResults.filter(r => r.value >= 500).length
+                            ? ntnMissingResults.filter(r => r.value >= 500 || r.hasEFormSuffix).length
                             : filteredNtnMissingRecords.length} SHIPMENTS
                         </span>
                       </div>
@@ -5592,7 +5658,7 @@ function AppContent() {
                           if (subFilter === 'advance-update') {
                             return r.isAdvanceUpdate && (r.value < 500 || (isAdvanceUpdateApplied && selectedHighValueIds.has(r.id)));
                           }
-                          if (subFilter === 'high-value') return r.hasInvalidSuffix && r.value >= 500;
+                          if (subFilter === 'high-value') return r.hasStandardExemptSuffix && r.value >= 500;
                           return true;
                         }).map((row, i) => (
                           <tr key={i} className="hover:bg-gray-50/30 transition-all">
