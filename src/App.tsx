@@ -10,7 +10,7 @@ import {
   Truck, Settings, AlertCircle, CheckCircle2, Search, FileCode, RefreshCw, 
   Store, Layers, Bell, ChevronDown, FileText, BarChart3, AlertTriangle,
   PieChart, Database, Hash, FileWarning, Zap, ShoppingBag, GitBranch, UserCircle, Sliders,
-  Copy, Check, Edit2, Trash2, XCircle, Plus, X, ShieldCheck, Info, Upload, Download,
+  Copy, Check, Edit2, Edit3, Trash2, XCircle, Plus, X, ShieldCheck, Info, Upload, Download,
   Shield, Key, Save, Mail, LayoutGrid, List, History, FileSpreadsheet, Building2, Barcode,
   Contact, Activity, Settings2, Building, Fingerprint, ExternalLink,
   MessageSquare, Bot
@@ -1276,6 +1276,7 @@ function AppContent() {
     const saved = localStorage.getItem('last_ntn_missing_results');
     return saved ? JSON.parse(saved) : [];
   });
+  const [ntnMissingSearchQuery, setNtnMissingSearchQuery] = useState('');
   const [recentNtnMissingActivity, setRecentNtnMissingActivity] = useState<any[]>([]);
   const [isHighValueMissingExpanded, setIsHighValueMissingExpanded] = useState(false);
   const [ntnAutoUpdateResults, setNtnAutoUpdateResults] = useState<any[]>(() => {
@@ -1298,6 +1299,22 @@ function AppContent() {
     return saved ? JSON.parse(saved) : [];
   });
   const [recentMdiCheckerActivity, setRecentMdiCheckerActivity] = useState<any[]>([]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [selectedNtnMissingIds, setSelectedNtnMissingIds] = useState<Set<string>>(new Set());
+  const [lastEditedId, setLastEditedId] = useState<string | null>(null);
+  const [ntnMissingHeaders, setNtnMissingHeaders] = useState(() => {
+    const saved = localStorage.getItem('ntnMissingHeaders');
+    return saved ? JSON.parse(saved) : {
+      tracking: 'Tracking Number',
+      shipper: 'Shipper Company',
+      name: 'Shipper Name',
+      ntn: 'Matched NTN',
+      value: 'Customs Value',
+      service: 'Service Type'
+    };
+  });
+  const [editingHeaderKey, setEditingHeaderKey] = useState<string | null>(null);
+  const [editingRowIds, setEditingRowIds] = useState<Set<string>>(new Set());
   const [mdiFilter, setMdiFilter] = useState('all');
   const [expandedDescId, setExpandedDescId] = useState<string | null>(null);
 
@@ -1348,6 +1365,95 @@ function AppContent() {
     localStorage.setItem('b2cSheetsResults', JSON.stringify(b2cSheetsResults));
   }, [b2cSheetsResults]);
 
+
+  const updateNtnMissingRecord = (id: string, field: 'shipper' | 'name', value: string) => {
+    setNtnMissingResults(prev => {
+      // If the edited row is part of the selection, update all selected rows in real-time
+      if (selectedNtnMissingIds.has(id)) {
+        return prev.map(r => selectedNtnMissingIds.has(r.id) ? { ...r, [field]: value } : r);
+      }
+      // Otherwise just update the single row
+      return prev.map(r => r.id === id ? { ...r, [field]: value } : r);
+    });
+    setHasUnsavedChanges(true);
+    setLastEditedId(id);
+  };
+
+  const deleteNtnMissingRecord = (id: string) => {
+    setNtnMissingResults(prev => prev.filter(r => r.id !== id));
+    setSelectedNtnMissingIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setSuccessMessage('Shipment removed from results.');
+    setTimeout(() => setSuccessMessage(''), 3000);
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setSuccessMessage(`Copied: ${text}`);
+    setTimeout(() => setSuccessMessage(''), 2000);
+  };
+
+  useEffect(() => {
+    localStorage.setItem('ntnMissingHeaders', JSON.stringify(ntnMissingHeaders));
+  }, [ntnMissingHeaders]);
+
+  const bulkUpdateNtnMissingRecords = (originalValue: string, field: 'shipper' | 'name', newValue: string, groupField: 'originalShipper' | 'originalName') => {
+    setNtnMissingResults(prev => prev.map(r => {
+      if (r[groupField] === originalValue) {
+        return { ...r, [field]: newValue };
+      }
+      return r;
+    }));
+    setHasUnsavedChanges(true);
+    setSuccessMessage(`Updated all shipments for "${originalValue}"`);
+    setTimeout(() => setSuccessMessage(''), 3000);
+  };
+
+  const applyEditToSelected = () => {
+    if (!lastEditedId || selectedNtnMissingIds.size === 0) return;
+    
+    const sourceRecord = ntnMissingResults.find(r => r.id === lastEditedId);
+    if (!sourceRecord) return;
+
+    setNtnMissingResults(prev => prev.map(r => {
+      if (selectedNtnMissingIds.has(r.id)) {
+        return { ...r, shipper: sourceRecord.shipper, name: sourceRecord.name };
+      }
+      return r;
+    }));
+    
+    setHasUnsavedChanges(true);
+    setSuccessMessage(`Applied changes to ${selectedNtnMissingIds.size} selected records!`);
+    setTimeout(() => setSuccessMessage(''), 3000);
+  };
+
+  const toggleNtnMissingSelection = (id: string) => {
+    setSelectedNtnMissingIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllNtnMissingSelection = (visibleRecords: any[]) => {
+    if (selectedNtnMissingIds.size === visibleRecords.length) {
+      setSelectedNtnMissingIds(new Set());
+    } else {
+      setSelectedNtnMissingIds(new Set(visibleRecords.map(r => r.id)));
+    }
+  };
+
+  const deleteSelectedNtnMissingRecords = () => {
+    if (selectedNtnMissingIds.size === 0) return;
+    setNtnMissingResults(prev => prev.filter(r => !selectedNtnMissingIds.has(r.id)));
+    setSelectedNtnMissingIds(new Set());
+    setSuccessMessage(`Removed ${selectedNtnMissingIds.size} shipments.`);
+    setTimeout(() => setSuccessMessage(''), 3000);
+  };
 
   const [lockPin, setLockPin] = useState('1234');
   const [isScreenLocked, setIsScreenLocked] = useState(false);
@@ -1566,7 +1672,8 @@ function AppContent() {
         const matchedByCnic = !!dbMatchByCnic;
 
         const foundInDb = !!dbMatch;
-        const foundNtn = dbMatch ? (dbMatch.ntn || dbMatch.cnic) : '';
+        const isExpired = dbMatch?.status === 'Expired';
+        const foundNtn = dbMatch ? (isExpired ? 'NTN Expired' : (dbMatch.ntn || dbMatch.cnic)) : '';
         const eFormRegex = /-e[-\s]*form(\/ntn)?\s*$/i;
         const standardExemptRegex = /-[abc]\s*$/i;
         
@@ -1599,10 +1706,12 @@ function AppContent() {
           hasStandardExemptSuffix,
           hasInvalidSuffix,
           foundInDb,
+          isExpired,
           dbId: dbMatch?.id,
           foundNtn,
-          originalCompany: cleanedCompany,
-          color: foundInDb ? 'emerald' : (isMissing ? 'orange' : 'gray')
+          originalShipper: cleanedCompany,
+          originalName: name,
+          color: isExpired ? 'red' : (foundInDb ? 'emerald' : (isMissing ? 'orange' : 'gray'))
         };
       }).filter(row => row !== null);
 
@@ -1629,7 +1738,10 @@ function AppContent() {
           try {
             await supabase
               .from('ntn_records')
-              .update({ name: row.name })
+              .update({ 
+                name: row.name,
+                // Also update the shipper company if needed
+              })
               .eq('id', row.dbId);
           } catch (err) {
             console.error('Error updating database record:', err);
@@ -1763,7 +1875,8 @@ function AppContent() {
         });
 
         const foundInDb = !!match;
-        const foundNtn = match ? (match.ntn || match.cnic) : '';
+        const isExpired = match?.status === 'Expired';
+        const foundNtn = match ? (isExpired ? 'NTN Expired' : (match.ntn || match.cnic)) : '';
         const isHighValue = customsValue >= 500;
 
         return {
@@ -1775,10 +1888,11 @@ function AppContent() {
           foundInDb,
           dbId: match?.id,
           foundNtn,
+          isExpired,
           value: customsValue,
           service,
-          status: foundInDb ? 'MATCH FOUND' : 'NO MATCH',
-          color: foundInDb ? 'emerald' : 'gray'
+          status: isExpired ? 'NTN EXPIRED' : (foundInDb ? 'MATCH FOUND' : 'NO MATCH'),
+          color: isExpired ? 'red' : (foundInDb ? 'emerald' : 'gray')
         };
       });
 
@@ -2469,20 +2583,22 @@ function AppContent() {
   };
 
   const exportNtnMissingResults = () => {
-    let recordsToExport = filteredNtnMissingRecords;
+    // If no specific subfilter results, export all ntnMissingResults
+    const recordsToExport = filteredNtnMissingRecords.length > 0 ? filteredNtnMissingRecords : ntnMissingResults;
     
     if (recordsToExport.length === 0) {
-      setError('No updated records found to export.');
+      setError('No records found to export.');
       setTimeout(() => setError(''), 3000);
       return;
     }
     
     const exportData = recordsToExport.map(row => ({
-      'Tracking Number': String(row.tracking),
-      'Shipper Company': row.shipper,
-      'Shipper Name': row.name,
-      'Service Type': row.service,
-      'Customs Value': row.value
+      [ntnMissingHeaders.tracking]: String(row.tracking),
+      [ntnMissingHeaders.shipper]: row.shipper,
+      [ntnMissingHeaders.name]: row.name,
+      ...(subFilter === 'advance-update' ? { [ntnMissingHeaders.ntn]: row.foundNtn } : {}),
+      [ntnMissingHeaders.value]: row.value,
+      [ntnMissingHeaders.service]: row.service
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -3014,13 +3130,25 @@ function AppContent() {
   const saveEdit = async (updatedRecord: any) => {
     if (!user || !updatedRecord) return;
     
-    const { id, type, data, ...updateData } = updatedRecord;
-    const collectionName = type === 'HS' ? 'hs_code_records' : 'ntn_records';
+    // Sanitize updateData to only include valid database columns
+    // We remove fields like 'isDuplicate', 'duplicateKey', 'type', 'data' that are UI-only
+    const sanitizedData = {
+      ref: updatedRecord.ref || updatedRecord.tracking || '',
+      name: updatedRecord.name || updatedRecord.shipper || updatedRecord.company || '',
+      ntn: updatedRecord.ntn || '',
+      cnic: updatedRecord.cnic || '',
+      status: updatedRecord.status || 'Active',
+      color: updatedRecord.color || (updatedRecord.status === 'Active' ? 'emerald' : 'red'),
+      user_id: user.id
+    };
+    
+    const { id } = updatedRecord;
+    const collectionName = updatedRecord.type === 'HS' ? 'hs_code_records' : 'ntn_records';
     
     try {
       const { error } = await supabase
         .from(collectionName)
-        .update(updateData)
+        .update(sanitizedData)
         .eq('id', id);
       
       if (error) throw error;
@@ -3208,7 +3336,7 @@ function AppContent() {
 
   const filteredNtnMissingRecords = useMemo(() => {
     if (!Array.isArray(ntnMissingResults)) return [];
-    const query = (searchQuery || '').toLowerCase().trim();
+    const query = (ntnMissingSearchQuery || '').toLowerCase().trim();
     
     const matches = ntnMissingResults.filter(row => {
       if (!row || typeof row !== 'object') return false;
@@ -3220,29 +3348,40 @@ function AppContent() {
       
       const val = row.value || 0;
       
-      if (subFilter === 'high-value') return matchesSearch && val >= 500;
+      // Global Search Override: If searching, show matches from the entire sheet
+      if (query !== '') return matchesSearch;
+
+      if (subFilter === 'high-value') return matchesSearch && (val >= 500 || row.hasEFormSuffix);
       if (subFilter === 'advance-update') {
-        if (isAdvanceUpdateApplied) {
-          return matchesSearch && row.isAdvanceUpdate && row.isUpdateApplied;
-        }
-        return matchesSearch && row.isAdvanceUpdate;
+        const isMatch = row.isAdvanceUpdate && (val < 500 || (isAdvanceUpdateApplied && selectedHighValueIds.has(row.id)));
+        return matchesSearch && isMatch;
       }
-      if (subFilter === 'current-missing' || subFilter === '') {
-        return matchesSearch && row.isMissing;
-      }
+      if (subFilter === 'current-ntn') return matchesSearch && row.isMissing && val < 500;
+      
       return matchesSearch;
     });
 
     if (subFilter === 'advance-update') {
       return [...matches].sort((a, b) => {
+        // Priority 1: Selection Status
+        const aSel = selectedNtnMissingIds.has(a.id) ? 1 : 0;
+        const bSel = selectedNtnMissingIds.has(b.id) ? 1 : 0;
+        if (aSel !== bSel) return bSel - aSel;
+
+        // Priority 2: High Value
         const aVal = (a.value || 0) >= 500 ? 1 : 0;
         const bVal = (b.value || 0) >= 500 ? 1 : 0;
         return bVal - aVal;
       });
     }
 
-    return matches;
-  }, [ntnMissingResults, searchQuery, subFilter, isAdvanceUpdateApplied]);
+    // Default sort for other filters: Selected items first
+    return [...matches].sort((a, b) => {
+      const aSel = selectedNtnMissingIds.has(a.id) ? 1 : 0;
+      const bSel = selectedNtnMissingIds.has(b.id) ? 1 : 0;
+      return bSel - aSel;
+    });
+  }, [ntnMissingResults, ntnMissingSearchQuery, subFilter, isAdvanceUpdateApplied, selectedHighValueIds, selectedNtnMissingIds]);
 
   const filteredNtnAutoUpdateRecords = useMemo(() => {
     if (!Array.isArray(ntnAutoUpdateResults)) return [];
@@ -5291,25 +5430,51 @@ function AppContent() {
 
         {activeTab === 'NTN Missing' && (
           <div className="space-y-8">
-            {/* NTN Missing Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[
-                { id: 'advance-update', label: 'ADVANCE NTN UPDATE', value: ntnMissingResults.filter(r => r.isAdvanceUpdate && r.value < 500).length.toLocaleString(), icon: Zap, color: 'emerald', bg: 'bg-emerald-50/50', iconBg: 'bg-emerald-500' },
-                { id: 'current-ntn', label: 'CURRENT RESULTS', value: ntnMissingResults.filter(r => r.isMissing && r.value < 500).length.toLocaleString(), icon: Search, color: 'orange', bg: 'bg-orange-50/50', iconBg: 'bg-orange-500' },
-                { id: 'high-value', label: 'HIGH VALUE SHIPMENTS', value: ntnMissingResults.filter(r => r.value >= 500 || r.hasEFormSuffix).length.toLocaleString(), icon: AlertCircle, color: 'blue', bg: 'bg-blue-50/50', iconBg: 'bg-blue-500' },
-              ].map((stat, i) => (
-                <div 
-                  key={i} 
-                  onClick={() => setSubFilter(stat.id)}
-                  className={`p-6 rounded-[32px] flex flex-col items-center text-center transition-all cursor-pointer border-2 ${subFilter === stat.id ? `border-${stat.color}-500 shadow-xl scale-[1.05] ${stat.bg}` : 'border-gray-100 bg-white hover:shadow-lg shadow-sm'} group`}
-                >
-                  <div className={`w-12 h-12 ${stat.iconBg} rounded-2xl flex items-center justify-center text-white shadow-lg shadow-current/20 mb-4 group-hover:scale-110 transition-transform`}>
-                    <stat.icon size={24} />
+            {/* NTN Missing Stats - Hidden during search */}
+            {ntnMissingSearchQuery === '' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-500">
+                {[
+                  { id: 'advance-update', label: 'ADVANCE NTN UPDATE', value: ntnMissingResults.filter(r => r.isAdvanceUpdate && r.value < 500).length.toLocaleString(), icon: Zap, color: 'emerald', bg: 'bg-emerald-50/50', iconBg: 'bg-emerald-500' },
+                  { id: 'current-ntn', label: 'CURRENT RESULTS', value: ntnMissingResults.filter(r => r.isMissing && r.value < 500).length.toLocaleString(), icon: Search, color: 'orange', bg: 'bg-orange-50/50', iconBg: 'bg-orange-500' },
+                  { id: 'high-value', label: 'HIGH VALUE SHIPMENTS', value: ntnMissingResults.filter(r => r.value >= 500 || r.hasEFormSuffix).length.toLocaleString(), icon: AlertCircle, color: 'blue', bg: 'bg-blue-50/50', iconBg: 'bg-blue-500' },
+                ].map((stat, i) => (
+                  <div 
+                    key={i} 
+                    onClick={() => setSubFilter(stat.id)}
+                    className={`p-6 rounded-[32px] flex flex-col items-center text-center transition-all cursor-pointer border-2 ${subFilter === stat.id ? `border-${stat.color}-500 shadow-xl scale-[1.05] ${stat.bg}` : 'border-gray-100 bg-white hover:shadow-lg shadow-sm'} group`}
+                  >
+                    <div className={`w-12 h-12 ${stat.iconBg} rounded-2xl flex items-center justify-center text-white shadow-lg shadow-current/20 mb-4 group-hover:scale-110 transition-transform`}>
+                      <stat.icon size={24} />
+                    </div>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                    <p className={`text-2xl font-black text-gray-800 tracking-tight`}>{stat.value}</p>
                   </div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{stat.label}</p>
-                  <p className={`text-2xl font-black text-gray-800 tracking-tight`}>{stat.value}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Centered Large Search Bar - Below Cards */}
+            <div className="flex justify-center my-4">
+              <div className="relative w-full max-w-3xl">
+                <div className="absolute inset-y-0 left-0 pl-6 flex items-center pointer-events-none text-blue-500">
+                  <Search size={24} />
                 </div>
-              ))}
+                <input 
+                  type="text" 
+                  placeholder="Search by Company Name or Tracking Number..." 
+                  value={ntnMissingSearchQuery}
+                  onChange={(e) => setNtnMissingSearchQuery(e.target.value)}
+                  className="w-full bg-white border-2 border-blue-100 rounded-[40px] py-6 pl-16 pr-16 text-xl font-bold text-gray-800 placeholder-gray-300 focus:border-blue-500 focus:ring-8 focus:ring-blue-500/5 transition-all shadow-2xl shadow-blue-500/10"
+                />
+                {ntnMissingSearchQuery && (
+                  <button 
+                    onClick={() => setNtnMissingSearchQuery('')}
+                    className="absolute inset-y-0 right-6 flex items-center text-gray-300 hover:text-blue-500 transition-colors"
+                  >
+                    <XCircle size={24} />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 relative overflow-hidden">
@@ -5341,6 +5506,8 @@ function AppContent() {
                           setNtnMissingResults([]);
                           setIsAdvanceUpdateApplied(false);
                           setSelectedHighValueIds(new Set());
+                          setNtnMissingSearchQuery('');
+                          setSelectedNtnMissingIds(new Set());
                           const fileInput = document.getElementById('ntn-missing-upload') as HTMLInputElement;
                           if (fileInput) fileInput.value = '';
                         }}
@@ -5349,6 +5516,53 @@ function AppContent() {
                         <Trash2 size={18} />
                         <span>Clear</span>
                       </button>
+                      {selectedNtnMissingIds.size > 0 && !hasUnsavedChanges && (
+                        <button 
+                          onClick={deleteSelectedNtnMissingRecords}
+                          className="px-6 py-3 bg-red-100 text-red-600 rounded-2xl font-black hover:bg-red-200 transition-all flex items-center space-x-2 animate-in slide-in-from-right duration-300"
+                          title="Delete all selected shipments"
+                        >
+                          <Trash2 size={18} />
+                          <span>Delete Selected ({selectedNtnMissingIds.size})</span>
+                        </button>
+                      )}
+                      {hasUnsavedChanges && (
+                        <div className="flex items-center space-x-3">
+                          {selectedNtnMissingIds.size > 0 && (
+                            <div className="flex items-center space-x-2">
+                              <button 
+                                onClick={applyEditToSelected}
+                                className="px-8 py-3 bg-amber-500 text-white rounded-2xl font-black shadow-lg shadow-amber-500/30 hover:bg-amber-600 transition-all flex items-center space-x-2 animate-in slide-in-from-right duration-300"
+                              >
+                                <Layers size={20} />
+                                <span>Apply Edit ({selectedNtnMissingIds.size})</span>
+                              </button>
+                              <button 
+                                onClick={deleteSelectedNtnMissingRecords}
+                                className="px-6 py-3 bg-red-100 text-red-600 rounded-2xl font-black hover:bg-red-200 transition-all flex items-center space-x-2 animate-in slide-in-from-right duration-300"
+                                title="Delete all selected shipments"
+                              >
+                                <Trash2 size={18} />
+                                <span>Delete ({selectedNtnMissingIds.size})</span>
+                              </button>
+                            </div>
+                          )}
+                          <button 
+                            onClick={() => {
+                              setHasUnsavedChanges(false);
+                              setNtnMissingSearchQuery('');
+                              setSelectedNtnMissingIds(new Set());
+                              setEditingRowIds(new Set());
+                              setSuccessMessage('Changes applied successfully!');
+                              setTimeout(() => setSuccessMessage(''), 3000);
+                            }}
+                            className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 transition-all flex items-center space-x-2 animate-in zoom-in duration-300"
+                          >
+                            <CheckCircle2 size={20} />
+                            <span>Apply Changes</span>
+                          </button>
+                        </div>
+                      )}
                       {subFilter === 'advance-update' && !isAdvanceUpdateApplied ? (
                         <div className="flex items-center space-x-3">
                           <button 
@@ -5403,8 +5617,8 @@ function AppContent() {
                 </div>
               </div>
 
-              {/* High Value Section for Advance Update (Matches Only) */}
-              {subFilter === 'advance-update' && ntnMissingResults.some(r => r.isAdvanceUpdate && r.value >= 500) && !isAdvanceUpdateApplied && (
+              {/* High Value Section for Advance Update (Hidden during search) */}
+              {subFilter === 'advance-update' && ntnMissingSearchQuery === '' && ntnMissingResults.some(r => r.isAdvanceUpdate && r.value >= 500) && !isAdvanceUpdateApplied && (
                 <div className="mb-8">
                   <button 
                     onClick={() => setIsHighValueMissingExpanded(!isHighValueMissingExpanded)}
@@ -5472,8 +5686,8 @@ function AppContent() {
 
               {ntnMissingResults.length > 0 && (
                 <div className="mt-10">
-                  {/* High Value Section for Current Results (Strictly Pure Missing Only) */}
-                  {subFilter === 'current-ntn' && ntnMissingResults.filter(r => r.isMissing && r.value >= 500).length > 0 && (
+                  {/* High Value Section for Current Results (Hidden during search) */}
+                  {subFilter === 'current-ntn' && ntnMissingSearchQuery === '' && ntnMissingResults.filter(r => r.isMissing && r.value >= 500).length > 0 && (
                     <div className="mb-8">
                       <button 
                         onClick={() => setIsHighValueMissingExpanded(!isHighValueMissingExpanded)}
@@ -5533,8 +5747,8 @@ function AppContent() {
                     </div>
                   )}
 
-                  {/* High Value Section for Verified Results (Proper NTN/CNIC only) */}
-                  {subFilter === 'high-value' && ntnMissingResults.filter(r => (r.hasIdInRow && r.value >= 500) || r.hasEFormSuffix).length > 0 && (
+                  {/* High Value Section for Verified Results (Hidden during search) */}
+                  {subFilter === 'high-value' && ntnMissingSearchQuery === '' && ntnMissingResults.filter(r => (r.hasIdInRow && r.value >= 500) || r.hasEFormSuffix).length > 0 && (
                     <div className="mb-8">
                       <button 
                         onClick={() => setIsHighValueMissingExpanded(!isHighValueMissingExpanded)}
@@ -5619,7 +5833,7 @@ function AppContent() {
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between mb-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
                     <div className="flex items-center space-x-4">
                       <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest">
                         {subFilter === 'current-ntn' ? 'Regular Missing Shipments (<$500)' : 
@@ -5632,7 +5846,7 @@ function AppContent() {
                             ? ntnMissingResults.filter(r => r.isMissing && r.value < 500).length 
                             : subFilter === 'high-value' 
                             ? ntnMissingResults.filter(r => r.value >= 500 || r.hasEFormSuffix).length
-                            : filteredNtnMissingRecords.length} SHIPMENTS
+                            : ntnMissingResults.length} SHIPMENTS
                         </span>
                       </div>
                     </div>
@@ -5642,49 +5856,146 @@ function AppContent() {
                     <table className="w-full">
                       <thead>
                         <tr className="text-left bg-gray-50/50">
-                          <th className="py-4 pl-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Tracking Number</th>
-                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Shipper Company</th>
-                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Shipper Name</th>
-                          {subFilter === 'advance-update' && (
-                            <th className="py-4 text-[10px] font-black text-blue-500 uppercase tracking-widest">Matched NTN</th>
-                          )}
-                          <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Customs Value</th>
-                          <th className="py-4 pr-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Service Type</th>
+                          <th className="py-4 pl-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">
+                            <input 
+                              type="checkbox" 
+                              checked={filteredNtnMissingRecords.length > 0 && selectedNtnMissingIds.size === filteredNtnMissingRecords.length}
+                              onChange={() => toggleAllNtnMissingSelection(filteredNtnMissingRecords)}
+                              className="w-5 h-5 rounded-lg border-2 border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer transition-all"
+                            />
+                          </th>
+                          {[
+                            { key: 'tracking', label: ntnMissingHeaders.tracking },
+                            { key: 'shipper', label: ntnMissingHeaders.shipper },
+                            { key: 'name', label: ntnMissingHeaders.name },
+                            ...(subFilter === 'advance-update' ? [{ key: 'ntn', label: ntnMissingHeaders.ntn }] : []),
+                            { key: 'value', label: ntnMissingHeaders.value },
+                            { key: 'service', label: ntnMissingHeaders.service }
+                          ].map((header, idx) => (
+                            <th key={idx} className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest group relative">
+                              <div className="flex items-center space-x-2">
+                                {editingHeaderKey === header.key ? (
+                                  <input 
+                                    autoFocus
+                                    type="text"
+                                    value={header.label}
+                                    onChange={(e) => setNtnMissingHeaders((prev: any) => ({ ...prev, [header.key]: e.target.value }))}
+                                    onBlur={() => setEditingHeaderKey(null)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') setEditingHeaderKey(null);
+                                      if (e.key === 'Escape') setEditingHeaderKey(null);
+                                    }}
+                                    className="bg-white border border-blue-500 rounded px-2 py-1 text-[10px] font-black w-32 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                  />
+                                ) : (
+                                  <>
+                                    <span>{header.label}</span>
+                                    <button 
+                                      onClick={() => setEditingHeaderKey(header.key)}
+                                      className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-blue-500 transition-all"
+                                    >
+                                      <Edit3 size={10} />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </th>
+                          ))}
+                          <th className="py-4 pr-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
-                        {ntnMissingResults.filter(r => {
-                          if (subFilter === 'current-ntn') return r.isMissing && r.value < 500;
-                          if (subFilter === 'advance-update') {
-                            return r.isAdvanceUpdate && (r.value < 500 || (isAdvanceUpdateApplied && selectedHighValueIds.has(r.id)));
-                          }
-                          if (subFilter === 'high-value') return r.hasStandardExemptSuffix && r.value >= 500;
-                          return true;
-                        }).map((row, i) => (
-                          <tr key={i} className="hover:bg-gray-50/30 transition-all">
-                            <td className="py-4 pl-6">
-                              <div className="flex items-center space-x-3">
-                                {subFilter === 'advance-update' && !isAdvanceUpdateApplied && row.value >= 500 && (
-                                  <input 
-                                    type="checkbox" 
-                                    checked={selectedHighValueIds.has(row.id)}
-                                    onChange={() => toggleHighValueSelection(row.id)}
-                                    className="w-5 h-5 rounded-lg border-2 border-amber-300 text-blue-600 focus:ring-blue-500 cursor-pointer transition-all"
-                                  />
-                                )}
+                        {filteredNtnMissingRecords.map((row, i) => (
+                          <tr key={i} className={`hover:bg-gray-50/30 transition-all ${selectedNtnMissingIds.has(row.id) ? 'bg-blue-50/50 border-l-4 border-blue-500' : ''}`}>
+                            <td className="py-4 pl-6 text-center">
+                              <input 
+                                type="checkbox" 
+                                checked={selectedNtnMissingIds.has(row.id)}
+                                onChange={() => toggleNtnMissingSelection(row.id)}
+                                className="w-5 h-5 rounded-lg border-2 border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer transition-all"
+                              />
+                            </td>
+                            <td className="py-4">
+                              <div className="flex items-center space-x-2">
                                 <span className="text-xs font-mono font-bold text-orange-600 bg-orange-50 px-2 py-1 rounded-lg">{row.tracking}</span>
+                                <button 
+                                  onClick={() => copyToClipboard(row.tracking)}
+                                  className="text-gray-300 hover:text-blue-500 transition-all p-1"
+                                >
+                                  <Copy size={12} />
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-4">
+                              <div className="flex flex-col space-y-1">
+                                <div className="flex items-center space-x-2">
+                                  {editingRowIds.has(row.id) ? (
+                                    <>
+                                      <input 
+                                        type="text" 
+                                        value={row.shipper}
+                                        onChange={(e) => updateNtnMissingRecord(row.id, 'shipper', e.target.value)}
+                                        className="text-sm font-bold text-gray-800 bg-white border-2 border-blue-100 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 rounded-xl px-3 py-1.5 w-full transition-all shadow-sm"
+                                      />
+                                      <button 
+                                        onClick={() => bulkUpdateNtnMissingRecords(row.originalShipper, 'shipper', row.shipper, 'originalShipper')}
+                                        title="Apply to all shipments with this name"
+                                        className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                      >
+                                        <Copy size={14} />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <div 
+                                      onClick={() => setEditingRowIds(prev => new Set(prev).add(row.id))}
+                                      className="group/edit relative cursor-pointer"
+                                    >
+                                      <p className="text-sm font-bold text-gray-900 group-hover/edit:text-blue-600 transition-colors">{row.shipper}</p>
+                                      <div className="absolute -right-6 top-1/2 -translate-y-1/2 opacity-0 group-hover/edit:opacity-100 group-hover/edit:translate-x-1 transition-all duration-300">
+                                        <div className="bg-blue-500 text-white p-1 rounded-md shadow-lg shadow-blue-500/20">
+                                          <Edit3 size={10} />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                                {row.value >= 500 && (
+                                  <span className="text-[9px] font-black bg-red-500 text-white px-2 py-0.5 rounded-full tracking-tighter w-fit">HIGH VALUE</span>
+                                )}
                               </div>
                             </td>
                             <td className="py-4">
                               <div className="flex items-center space-x-2">
-                                <p className="text-sm font-bold text-gray-800">{row.shipper}</p>
-                                {row.value >= 500 && (
-                                  <span className="text-[9px] font-black bg-red-500 text-white px-2 py-0.5 rounded-full tracking-tighter whitespace-nowrap">HIGH VALUE</span>
+                                {editingRowIds.has(row.id) ? (
+                                  <>
+                                    <input 
+                                      type="text" 
+                                      value={row.name}
+                                      onChange={(e) => updateNtnMissingRecord(row.id, 'name', e.target.value)}
+                                      className="text-sm font-bold text-gray-700 bg-white border-2 border-emerald-100 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/5 rounded-xl px-3 py-1.5 w-full transition-all shadow-sm"
+                                    />
+                                    <button 
+                                      onClick={() => bulkUpdateNtnMissingRecords(row.originalName, 'name', row.name, 'originalName')}
+                                      title="Apply to all matching names"
+                                      className="p-1.5 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                                    >
+                                      <Copy size={14} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <div 
+                                    onClick={() => setEditingRowIds(prev => new Set(prev).add(row.id))}
+                                    className="group/edit relative cursor-pointer"
+                                  >
+                                    <p className="text-sm font-bold text-gray-700 group-hover/edit:text-emerald-600 transition-colors">{row.name}</p>
+                                    <div className="absolute -right-6 top-1/2 -translate-y-1/2 opacity-0 group-hover/edit:opacity-100 group-hover/edit:translate-x-1 transition-all duration-300">
+                                      <div className="bg-emerald-500 text-white p-1 rounded-md shadow-lg shadow-emerald-500/20">
+                                        <Edit3 size={10} />
+                                      </div>
+                                    </div>
+                                  </div>
                                 )}
                               </div>
-                            </td>
-                            <td className="py-4">
-                              <p className="text-sm font-bold text-gray-700">{row.name}</p>
                             </td>
                             {subFilter === 'advance-update' && (
                               <td className="py-4">
@@ -5697,7 +6008,32 @@ function AppContent() {
                               <span className="text-xs font-bold text-gray-900">${row.value}</span>
                             </td>
                             <td className="py-4 pr-6 text-right">
-                              <span className="text-xs font-bold text-gray-500">{row.service}</span>
+                              <div className="flex items-center justify-end space-x-3">
+                                <span className="text-xs font-bold text-gray-500">{row.service}</span>
+                                <div className="flex items-center bg-gray-50 rounded-xl p-1 border border-gray-100">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingRowIds(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(row.id)) next.delete(row.id);
+                                        else next.add(row.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className={`p-2 rounded-lg transition-all ${editingRowIds.has(row.id) ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`}
+                                    title={editingRowIds.has(row.id) ? "Finish Editing" : "Edit Shipment"}
+                                  >
+                                    <Edit2 size={16} />
+                                  </button>
+                                  <button 
+                                    onClick={() => deleteNtnMissingRecord(row.id)}
+                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                                    title="Delete shipment"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </div>
                             </td>
                           </tr>
                         ))}
